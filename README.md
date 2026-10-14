@@ -1,6 +1,5 @@
-# deterministic-specifications-typescript
+# deterministic-generators-common
 
-TypeScript validators and types for the deterministic-specifications contract.
+Parser and validators for the [deterministic-specifications](https://github.com/deterministic-code/deterministic-specifications) contract.
 
-- [`validator/`](./validator) — AJV validation engine
-- [`parser/`](./parser) — YAML specification parser (`DeterministicParser`); tests live in [`parser/test/`](./parser/test)
+The TypeScript library lives in [`typescript/`](typescript) and is published as `@deterministic-code/deterministic-generators-common` (`DeterministicParser` on the `./parser` export, validators on the package root).
