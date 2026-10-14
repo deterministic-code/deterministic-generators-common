@@ -34,8 +34,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deterministic-code/deterministic-specifications-typescript.git",
-    "directory": "parser"
+    "url": "git+https://github.com/deterministic-code/deterministic-generators-common.git",
+    "directory": "typescript/parser"
   },
   "engines": {
     "node": ">=22.18"

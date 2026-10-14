@@ -1,0 +1,52 @@
+{
+  "name": "@deterministic-code/deterministic-generators-common",
+  "version": "0.1.0",
+  "description": "TypeScript validators and YAML parser for the deterministic-specifications contract.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./validator/index.ts",
+      "import": "./validator/dist/index.js"
+    },
+    "./parser": {
+      "types": "./parser/specification-parser.ts",
+      "import": "./parser/dist/specification-parser.js"
+    }
+  },
+  "files": [
+    "validator/dist",
+    "validator/index.ts",
+    "validator/types.ts",
+    "validator/SpecValidator.ts",
+    "validator/validators",
+    "parser/dist",
+    "parser/*.ts",
+    "parser/parser"
+  ],
+  "scripts": {
+    "prepare": "npm run build",
+    "test": "npm test --prefix parser && npm test --prefix validator",
+    "build": "npm run build:validator && npm run build:engines && npm run build:parser",
+    "build:validator": "esbuild validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=validator/dist/index.js",
+    "build:engines": "esbuild validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=validator/validators/engines.js",
+    "build:parser": "esbuild parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=parser/dist/specification-parser.js"
+  },
+  "dependencies": {
+    "ajv": "^8.18.0",
+    "pluralize": "^8.0.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deterministic-code/deterministic-generators-common.git",
+    "directory": "typescript"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

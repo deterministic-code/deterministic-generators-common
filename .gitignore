@@ -1,2 +1,9 @@
 node_modules/
 coverage/
+typescript/node_modules/
+typescript/parser/node_modules/
+typescript/validator/node_modules/
+typescript/parser/dist/
+typescript/validator/dist/
+typescript/validator/validators/engines.js
+.DS_Store
