@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Deterministic.Generators.Common/Deterministic.Generators.Common.csproj" />
+  <Project Path="Deterministic.Generators.Common.Tests/Deterministic.Generators.Common.Tests.csproj" />
+</Solution>
