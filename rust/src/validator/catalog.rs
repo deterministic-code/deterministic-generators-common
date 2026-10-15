@@ -73,6 +73,32 @@ pub fn parse_field_type_catalog(text: &str) -> HashMap<String, FieldType> {
     out
 }
 
+const CATALOG_KEYS: &[&str] = &[
+    "supports_size",
+    "implicit_default",
+    "min_value",
+    "max_value",
+    "defaults",
+];
+
+fn assert_catalog_complete(text: &str) -> Result<(), String> {
+    let parsed = parse_yaml_with_positions(text);
+    let Some(types) = parsed.data.get("types").and_then(Value::as_array) else {
+        return Err("field type catalog missing types array".to_string());
+    };
+    for entry in types {
+        let Some((name, body)) = single_key(entry) else {
+            return Err("field type catalog has a malformed type entry".to_string());
+        };
+        for key in CATALOG_KEYS {
+            if body.get(*key).is_none() {
+                return Err(format!("field type '{name}' is missing {key}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[inline(never)]
 pub fn load_field_type_catalog(start: &Path) -> Result<HashMap<String, FieldType>, String> {
     static CACHE: LazyLock<Mutex<HashMap<std::path::PathBuf, HashMap<String, FieldType>>>> =
@@ -85,6 +111,7 @@ pub fn load_field_type_catalog(start: &Path) -> Result<HashMap<String, FieldType
     let path = find_spec_path("backend", "types.yaml", start)
         .ok_or_else(|| "field type catalog not found: backend/types.yaml".to_string())?;
     let text = fs::read_to_string(path).map_err(|err| err.to_string())?;
+    assert_catalog_complete(&text)?;
     let catalog = parse_field_type_catalog(&text);
     cache.insert(key, catalog.clone());
     Ok(catalog)

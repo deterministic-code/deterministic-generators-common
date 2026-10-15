@@ -50,5 +50,4 @@ pub const SPEC_FILES: &[(&str, &str)] = &[
     ("backend", "services.spec.yaml"),
     ("frontend", "bindings.spec.yaml"),
     ("backend", "app.spec.yaml"),
-    ("backend", "field-types.spec.yaml"),
 ];

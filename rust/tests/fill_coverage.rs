@@ -634,6 +634,29 @@ fn internals_match_the_typescript_semantic_suite() {
     let err = load_field_type_catalog(Path::new("/no/such/catalog-root")).unwrap_err();
     assert!(err.contains("field type catalog not found"));
     let _ = load_field_type_catalog(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let incomplete = tempfile::tempdir().unwrap();
+    std::fs::create_dir(incomplete.path().join("backend")).unwrap();
+    std::fs::write(
+        incomplete.path().join("backend").join("types.yaml"),
+        "version: 1.0.0\ntypes:\n  - integer:\n      supports_size: false\n      implicit_default: 0\n      min_value: \"0\"\n      max_value: \"1\"\n",
+    )
+    .unwrap();
+    let missing_defaults = load_field_type_catalog(incomplete.path()).unwrap_err();
+    assert!(missing_defaults.contains("missing defaults"));
+    std::fs::write(
+        incomplete.path().join("backend").join("types.yaml"),
+        "version: 1.0.0\n",
+    )
+    .unwrap();
+    let missing_types = load_field_type_catalog(incomplete.path()).unwrap_err();
+    assert!(missing_types.contains("missing types array"));
+    std::fs::write(
+        incomplete.path().join("backend").join("types.yaml"),
+        "version: 1.0.0\ntypes:\n  - 1\n",
+    )
+    .unwrap();
+    let malformed = load_field_type_catalog(incomplete.path()).unwrap_err();
+    assert!(malformed.contains("malformed type entry"));
 
     check_type_model(
         &parse_yaml_with_positions(

@@ -168,36 +168,6 @@ function dsLoc(path: string): Mut | null {
       return { host, loc: ["types", 0, "user", "indexes", 0, "idx", "fields"] };
     return { host, loc: ["types", 0, "user", "indexes", 0, "idx"] };
   }
-  if (path.includes("datetimeDefault"))
-    return {
-      host: dsField({ type: "datetime", default_value: "Now" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
-  if (path.includes("uuidDefault"))
-    return {
-      host: dsField({ type: "uuid", default_value: "NewId" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
-  if (path.includes("hexDefault"))
-    return {
-      host: dsField({ type: "binary", size: 4, default_value: "Hex('')" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
-  if (path.includes("signedIntegerString"))
-    return {
-      host: dsField({ type: "biginteger", default_value: "0" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
-  if (path.includes("unsignedIntegerString"))
-    return {
-      host: dsField({ type: "unsignedbiginteger", default_value: "0" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
-  if (path.includes("decimalString"))
-    return {
-      host: dsField({ type: "decimal", size: [10, 2], default_value: "0.00" }),
-      loc: ["types", 0, "user", "fields", 0, "n", "default_value"],
-    };
   const fieldHosts: Record<string, Host> = {
     stringField: { type: "string", size: 8 },
     characterField: { type: "character", size: 1, default_value: "X" },

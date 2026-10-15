@@ -13,7 +13,6 @@ export type EngineName = (typeof VALIDATOR_ENGINES)[number][0];
 export const SPEC_FILES = [
   ...VALIDATOR_ENGINES.map(([, subdir, name]) => ({ subdir, name })),
   { subdir: "backend", name: "app.spec.yaml" },
-  { subdir: "backend", name: "field-types.spec.yaml" },
 ];
 
 export type SpecRef = {
