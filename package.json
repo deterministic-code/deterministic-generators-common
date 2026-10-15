@@ -1,7 +1,7 @@
 {
   "name": "@deterministic-code/deterministic-generators-common",
   "version": "0.1.0",
-  "description": "TypeScript validators and YAML parser for the deterministic-specifications contract.",
+  "description": "Parser and validators for the deterministic-specifications contract. The TypeScript library lives in typescript/; Rust and C# libraries live beside it.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -28,7 +28,9 @@
   "scripts": {
     "prepare": "npm run build",
     "test": "npm test --prefix typescript",
-    "build": "esbuild typescript/validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/dist/index.js && esbuild typescript/validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/validators/engines.js && esbuild typescript/parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/parser/dist/specification-parser.js"
+    "build": "esbuild typescript/validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/dist/index.js && esbuild typescript/validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/validators/engines.js && esbuild typescript/parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/parser/dist/specification-parser.js",
+    "test:rust": "sh rust/coverage.sh",
+    "test:csharp": "dotnet test csharp/Deterministic.Generators.Common.slnx --settings csharp/coverlet.runsettings"
   },
   "dependencies": {
     "ajv": "^8.18.0",

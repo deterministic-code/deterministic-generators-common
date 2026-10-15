@@ -6,4 +6,8 @@ typescript/validator/node_modules/
 typescript/parser/dist/
 typescript/validator/dist/
 typescript/validator/validators/engines.js
+rust/target/
+csharp/**/bin/
+csharp/**/obj/
+csharp/**/coverage.cobertura.xml
 .DS_Store
