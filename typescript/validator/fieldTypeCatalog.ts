@@ -79,6 +79,33 @@ export function parseFieldTypeCatalog(text: string): Map<string, FieldType> {
   return out;
 }
 
+const CATALOG_KEYS = [
+  "supports_size",
+  "implicit_default",
+  "min_value",
+  "max_value",
+  "defaults",
+] as const;
+
+function assertCatalogComplete(text: string): void {
+  const data = parseDocument(text).toJS();
+  const types = asRecord(data)?.types;
+  if (!Array.isArray(types)) {
+    throw new Error("field type catalog missing types array");
+  }
+  for (const entry of types) {
+    const pair = singleKey(entry);
+    if (!pair) {
+      throw new Error("field type catalog has a malformed type entry");
+    }
+    for (const key of CATALOG_KEYS) {
+      if (!(key in pair.body)) {
+        throw new Error(`field type '${pair.key}' is missing ${key}`);
+      }
+    }
+  }
+}
+
 const cache = new Map<string, Promise<Map<string, FieldType>>>();
 
 export async function loadFieldTypeCatalog(
@@ -92,7 +119,9 @@ export async function loadFieldTypeCatalog(
     if (!path) {
       throw new Error("field type catalog not found: backend/types.yaml");
     }
-    return parseFieldTypeCatalog(await readFile(path, "utf8"));
+    const text = await readFile(path, "utf8");
+    assertCatalogComplete(text);
+    return parseFieldTypeCatalog(text);
   })();
   cache.set(key, pending);
   return pending;

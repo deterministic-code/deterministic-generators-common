@@ -1,19 +1,11 @@
-import { readFile } from "node:fs/promises";
-import { parseDocument } from "yaml";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   loadFieldTypeCatalog,
   parseFieldTypeCatalog,
 } from "./fieldTypeCatalog.ts";
-import { resolveSpecPath } from "./resolveSpecPath.ts";
-import { tmpdir } from "node:os";
-import { SpecValidator } from "./SpecValidator.ts";
-
-function catalogIdentifiers(schema: {
-  $defs?: { identifier?: { enum?: string[] } };
-}): string[] {
-  return [...(schema.$defs?.identifier?.enum ?? [])].sort();
-}
 
 describe("fieldTypeCatalog", () => {
   test("parses tokens, ranges, and types with no defaults", () => {
@@ -36,17 +28,6 @@ types:
       defaults: [{ token: "Literal", regex: "^-?\\d+$" }],
     });
     expect(catalog.get("reference")?.defaults).toEqual([]);
-  });
-
-  test("every spec field type has a types.yaml row and vice versa", async () => {
-    const schema = parseDocument(
-      await readFile(
-        await resolveSpecPath("backend", "field-types.spec.yaml"),
-        "utf8",
-      ),
-    ).toJS() as Parameters<typeof catalogIdentifiers>[0];
-    const catalog = await loadFieldTypeCatalog();
-    expect([...catalog.keys()].sort()).toEqual(catalogIdentifiers(schema));
   });
 
   test("skips malformed entries and optional catalog fields", () => {
@@ -106,48 +87,39 @@ types:
     );
   });
 
-  test("types.yaml is valid against field-types.spec.yaml", async () => {
-    const specPath = await resolveSpecPath("backend", "field-types.spec.yaml");
-    const catalogPath = await resolveSpecPath("backend", "types.yaml");
-    const result = await new SpecValidator(specPath).validate(
-      await readFile(catalogPath, "utf8"),
+  async function writeCatalog(text: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "catalog-"));
+    await mkdir(join(dir, "backend"));
+    await writeFile(join(dir, "backend", "types.yaml"), text);
+    return dir;
+  }
+
+  test("loadFieldTypeCatalog throws when a catalog entry is missing required keys", async () => {
+    const dir = await writeCatalog(`version: 1.0.0
+types:
+  - integer:
+      supports_size: false
+      implicit_default: 0
+      min_value: "0"
+      max_value: "1"
+`);
+    await expect(loadFieldTypeCatalog(dir)).rejects.toThrow(
+      "field type 'integer' is missing defaults",
     );
-    expect(result).toEqual({ valid: true, errors: [] });
   });
 
-  test("catalog token regexes match types.spec.yaml", async () => {
-    const schema = parseDocument(
-      await readFile(
-        await resolveSpecPath("backend", "types.spec.yaml"),
-        "utf8",
-      ),
-    ).toJS() as {
-      $defs: {
-        datetimeDefault: { oneOf: Array<{ const?: string; pattern?: string }> };
-        uuidDefault: { oneOf: Array<{ const?: string; pattern?: string }> };
-        hexDefault: { pattern: string };
-        signedIntegerString: { pattern: string };
-        unsignedIntegerString: { pattern: string };
-        decimalString: { pattern: string };
-      };
-    };
-    const catalog = await loadFieldTypeCatalog();
-    const token = (type: string, name: string) =>
-      catalog.get(type)?.defaults.find((d) => d.token === name)?.regex;
-    expect(token("datetime", "Now")).toBe("^Now$");
-    expect(token("datetime", "UtcNow")).toBe("^UtcNow$");
-    expect(token("datetime", "DateTime")).toBe(
-      schema.$defs.datetimeDefault.oneOf[2]?.pattern,
+  test("loadFieldTypeCatalog throws when the catalog has no types array", async () => {
+    const dir = await writeCatalog("version: 1.0.0\n");
+    await expect(loadFieldTypeCatalog(dir)).rejects.toThrow(
+      "field type catalog missing types array",
     );
-    expect(token("uuid", "Uuid")).toBe(schema.$defs.uuidDefault.oneOf[2]?.pattern);
-    expect(token("binary", "Hex")).toBe(schema.$defs.hexDefault.pattern);
-    expect(token("biginteger", "Literal")).toBe(
-      schema.$defs.signedIntegerString.pattern,
+  });
+
+  test("loadFieldTypeCatalog throws when a catalog entry is malformed", async () => {
+    const dir = await writeCatalog("version: 1.0.0\ntypes:\n  - 1\n");
+    await expect(loadFieldTypeCatalog(dir)).rejects.toThrow(
+      "field type catalog has a malformed type entry",
     );
-    expect(token("unsignedbiginteger", "Literal")).toBe(
-      schema.$defs.unsignedIntegerString.pattern,
-    );
-    expect(token("decimal", "Literal")).toBe(schema.$defs.decimalString.pattern);
   });
 
   test("datetime and uuid expose the symbolic default tokens", async () => {

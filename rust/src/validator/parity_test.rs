@@ -168,9 +168,6 @@ fn spec_paths_walk_ancestors_and_report_missing_files() {
     assert!(missing.contains("spec file not found: backend/nope.spec.yaml") || missing.contains("spec file not found: backend\\nope.spec.yaml"));
     assert!(resolve_spec_path("backend", "routes.spec.yaml", std::env::temp_dir().as_path()).is_err());
     for (subdir, name) in SPEC_FILES {
-        if *name == "field-types.spec.yaml" {
-            continue;
-        }
         assert!(resolve_spec_path(subdir, name, &start).unwrap().ends_with(name), "{subdir}/{name}");
     }
     let _ = json!({"ok": true});
