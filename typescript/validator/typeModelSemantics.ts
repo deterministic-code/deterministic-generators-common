@@ -64,7 +64,7 @@ function stringList(value: unknown): string[] | undefined {
 }
 
 function referencesOf(
-  body: Record<string, unknown> | undefined,
+  body: Record<string, unknown> | undefined | null,
 ): string | [string, string] | undefined {
   const raw = body?.references;
   if (typeof raw === "string") return raw;

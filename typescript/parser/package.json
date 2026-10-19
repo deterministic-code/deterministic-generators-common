@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage",
+    "test": "npm run typecheck && vitest run --coverage --bail=1",
     "test:watch": "vitest"
   },
   "dependencies": {

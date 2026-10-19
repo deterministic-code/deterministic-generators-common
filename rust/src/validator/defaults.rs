@@ -67,6 +67,22 @@ fn visit_field_def(data: &Value, mut visit: impl FnMut(&str, &Value)) {
     }
 }
 
+fn collection_error(type_name: &str, value: &Value, nullable: bool) -> Option<String> {
+    if value.is_null() {
+        return (!nullable).then(|| "default_value null is only allowed when is_nullable is true".to_string());
+    }
+    if type_name.ends_with("[]") {
+        return match value.as_array() {
+            Some(items) if items.is_empty() => None,
+            _ => Some(format!("default_value for {type_name} must be []")),
+        };
+    }
+    match value.as_object() {
+        Some(map) if map.is_empty() => None,
+        _ => Some(format!("default_value for {type_name} must be {{}}")),
+    }
+}
+
 fn token_error(catalog: &FieldType, value: &str) -> Option<String> {
     if catalog.defaults.is_empty() {
         return None;
@@ -125,11 +141,17 @@ pub fn check_field_default_semantics(parsed: &ParsedYaml, _options: &ValidateOpt
         let Some(type_name) = def.get("type").and_then(Value::as_str) else {
             return;
         };
+        let value = &def["default_value"];
+        let path = format!("{base}/default_value");
+        if type_name.ends_with("[]") || type_name.ends_with("{}") {
+            if let Some(message) = collection_error(type_name, value, def.get("is_nullable") == Some(&Value::Bool(true))) {
+                errors.push(err(parsed, &path, message));
+            }
+            return;
+        }
         let Some(field) = catalog.get(type_name) else {
             return;
         };
-        let value = &def["default_value"];
-        let path = format!("{base}/default_value");
         if let Some(text) = value.as_str() {
             if let Some(message) = token_error(field, text) {
                 errors.push(err(parsed, &path, message));

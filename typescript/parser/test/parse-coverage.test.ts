@@ -60,6 +60,48 @@ describe("parser coverage", () => {
     assert.equal(spec.types[0]?.fields[0]?.hasDefault, true);
   });
 
+  it("parses list and dictionary defaults", async () => {
+    const spec = await parse({
+      "types.yaml": `types:
+  - card:
+      tags: [view_type]
+      fields:
+        - phones:
+            type: phone[]
+        - labels:
+            type: labels{}
+            references: labels.key
+            default_value: {}
+        - notes:
+            type: note[]
+            is_nullable: true
+            default_value: null
+`,
+    });
+    const [phones, labels, notes] = spec.types[0]?.fields ?? [];
+    assert.equal(phones?.hasDefault, true);
+    assert.deepEqual(phones?.defaultValue, []);
+    assert.equal(labels?.hasDefault, true);
+    assert.deepEqual(labels?.defaultValue, {});
+    assert.equal(notes?.hasDefault, true);
+    assert.equal(notes?.defaultValue, null);
+    const filled = await parse({
+      "types.yaml": `types:
+  - card:
+      fields:
+        - phones:
+            type: phone[]
+            default_value: [1]
+        - labels:
+            type: labels{}
+            default_value: { a: 1 }
+`,
+    });
+    assert.equal(filled.types[0]?.fields[0]?.hasDefault, true);
+    assert.equal(filled.types[0]?.fields[0]?.defaultValue, undefined);
+    assert.equal(filled.types[0]?.fields[1]?.defaultValue, undefined);
+  });
+
   it("throws on an invalid seed row key", async () => {
     await assert.rejects(
       () =>
@@ -582,7 +624,8 @@ routes:
       method: GET
 `,
     });
-    assert.equal(spec.types[0]?.fields[0]?.size?.[0], 10);
+    const size = spec.types[0]?.fields[0]?.size;
+    assert.equal(Array.isArray(size) ? size[0] : undefined, 10);
     assert.equal(spec.datasourceSeeds.get("user")?.[0]?.row.email, undefined);
     assert.ok(spec.routes.candidates.some((c) => c.name === "user"));
     const user = spec.routes.candidates.find((c) => c.name === "user");

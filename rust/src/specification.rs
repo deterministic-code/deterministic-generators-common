@@ -26,6 +26,7 @@ impl From<YamlLiteral> for Option<SeedValue> {
             YamlLiteral::Number(value) => Some(SeedValue::Number(value)),
             YamlLiteral::Bool(value) => Some(SeedValue::Bool(value)),
             YamlLiteral::Null => Some(SeedValue::Null),
+            YamlLiteral::EmptyArray | YamlLiteral::EmptyMap => None,
         }
     }
 }
@@ -611,7 +612,16 @@ pub fn read_type_field(name: &str, node: &YamlNode) -> TypeField {
     let references = references_of(node);
     let size = size_of(node);
     let min_size = node.finite_int("min_size");
-    let has_default = node.has("default_value");
+    let authored = node.has("default_value");
+    let default_value = if authored {
+        node.literal("default_value")
+    } else if parsed.is_array {
+        Some(YamlLiteral::EmptyArray)
+    } else if parsed.is_map {
+        Some(YamlLiteral::EmptyMap)
+    } else {
+        None
+    };
     TypeField {
         name: name.to_string(),
         type_name: raw_type,
@@ -624,12 +634,8 @@ pub fn read_type_field(name: &str, node: &YamlNode) -> TypeField {
         size,
         min_size,
         references,
-        has_default,
-        default_value: if has_default {
-            node.literal("default_value")
-        } else {
-            None
-        },
+        has_default: authored || default_value.is_some(),
+        default_value,
     }
 }
 

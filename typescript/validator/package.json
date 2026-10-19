@@ -21,7 +21,7 @@
     "prepack": "npm run build",
     "pretest": "npm run build:js && npm run build:engines",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage",
+    "test": "npm run typecheck && vitest run --coverage --bail=1",
     "test:watch": "vitest",
     "generate:invalid-samples": "node --experimental-strip-types test/generate-invalid.ts"
   },

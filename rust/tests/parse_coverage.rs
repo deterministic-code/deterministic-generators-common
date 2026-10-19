@@ -46,17 +46,30 @@ fn empty_documents_seeds_and_identity_lookups() {
             "types:\n  - user:\n      tags: [datasource_type]\n      fields:\n        - email:\n            type: string\n            size: unlimited\n            min_size: 1\n            is_nullable: true\n            default_value: \"\"\n",
         ),
         ("datasource.yaml", "types:\n  - user: {}\n"),
-        ("datasource_seeds.yaml", "seeds:\n  - user:\n      - id1:\n          email: a@b.c\n"),
+        ("datasource_seeds.yaml", "seeds:\n  - user:\n      - id1:\n          email: a@b.c\n          tags: []\n          meta: {}\n"),
         ("services.yaml", "services: []\n"),
         ("routes.yaml", "routes: []\n"),
     ])
     .unwrap();
     assert_eq!(spec.datasource_seeds["user"][0].id, 1);
+    assert_eq!(spec.datasource_seeds["user"][0].row.len(), 1);
+    assert!(spec.datasource_seeds["user"][0].row.contains_key("email"));
     assert!(spec.services.generics.is_empty());
     assert!(spec.routes.candidates.is_empty());
     assert_eq!(spec.types[0].fields[0].size, Some(FieldSize::Unlimited));
     assert!(spec.types[0].fields[0].has_default);
     assert_eq!(spec.types[0].fields[0].default_value, Some(YamlLiteral::String(String::new())));
+
+    let collections = parse(&[(
+        "types.yaml",
+        "types:\n  - card:\n      tags: [view_type]\n      fields:\n        - phones:\n            type: phone[]\n        - labels:\n            type: labels{}\n            references: labels.key\n        - notes:\n            type: note[]\n            is_nullable: true\n            default_value: null\n",
+    )])
+    .unwrap();
+    assert_eq!(collections.types[0].fields[0].default_value, Some(YamlLiteral::EmptyArray));
+    assert_eq!(collections.types[0].fields[1].default_value, Some(YamlLiteral::EmptyMap));
+    assert_eq!(collections.types[0].fields[2].default_value, Some(YamlLiteral::Null));
+    assert!(Option::<SeedValue>::from(YamlLiteral::EmptyArray).is_none());
+    assert!(Option::<SeedValue>::from(YamlLiteral::EmptyMap).is_none());
 
     let message = err(&[("datasource_seeds.yaml", "seeds:\n  - user:\n      - row1:\n          email: a\n")]);
     assert!(message.contains("Invalid seed row key"));

@@ -139,6 +139,26 @@ types:
     ).toBe(true);
   });
 
+  test("companion types.yaml OCC walk stops on inherit cycles", () => {
+    expect(
+      checkDatasourceModel(
+        parsed(`version: 1.0.0
+types:
+  - a:
+      fields:
+        - version:
+            is_optimistic_concurrency: true
+`),
+        {
+          types: [
+            { a: { inherits: "b", fields: [{ version: {} }] } },
+            { b: { inherits: "a", fields: [] } },
+          ],
+        },
+      ),
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   test("companion types.yaml accepts OCC on an inherited binary field", () => {
     expect(
       checkDatasourceModel(

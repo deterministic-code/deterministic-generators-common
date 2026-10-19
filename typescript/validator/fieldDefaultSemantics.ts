@@ -108,6 +108,35 @@ function rangeError(
   return null;
 }
 
+function isEmptyList(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 0;
+}
+
+function isEmptyMap(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  );
+}
+
+function collectionDefaultError(
+  typeName: string,
+  value: unknown,
+  nullable: boolean,
+): string | null {
+  if (value === null) {
+    return nullable
+      ? null
+      : "default_value null is only allowed when is_nullable is true";
+  }
+  if (typeName.endsWith("[]")) {
+    return isEmptyList(value) ? null : `default_value for ${typeName} must be []`;
+  }
+  return isEmptyMap(value) ? null : `default_value for ${typeName} must be {}`;
+}
+
 export function checkFieldDefaults(
   parsed: ParsedYaml,
   catalog: Map<string, FieldType>,
@@ -117,10 +146,19 @@ export function checkFieldDefaults(
     if (!("default_value" in def)) return;
     const typeName = def.type;
     if (typeof typeName !== "string") return;
+    const path = `${basePath}/default_value`;
+    if (typeName.endsWith("[]") || typeName.endsWith("{}")) {
+      const message = collectionDefaultError(
+        typeName,
+        def.default_value,
+        def.is_nullable === true,
+      );
+      if (message) errors.push(err(parsed, path, message));
+      return;
+    }
     const field = catalog.get(typeName);
     if (!field) return;
     const value = def.default_value;
-    const path = `${basePath}/default_value`;
     if (typeof value === "string") {
       const token = tokenError(field, value);
       if (token) errors.push(err(parsed, path, token));

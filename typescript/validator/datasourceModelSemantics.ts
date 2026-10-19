@@ -242,7 +242,8 @@ function companionFieldType(
 ): string | undefined {
   let current: string | undefined = typeName;
   const seen = new Set<string>();
-  while (current && !seen.has(current)) {
+  while (true) {
+    if (!current || seen.has(current)) return undefined;
     seen.add(current);
     const rec = companionFields.get(current)?.get(fieldName);
     if (typeof rec?.type === "string") return rec.type;

@@ -3,6 +3,7 @@ import { parse } from "yaml";
 type YamlLiteral = string | number | boolean | null;
 type YamlMap = { readonly [key: string]: YamlValue };
 type YamlValue = YamlLiteral | YamlValue[] | YamlMap;
+type FieldDefault = YamlLiteral | YamlValue[] | YamlMap;
 type Named = { name: string; node: YamlNode };
 
 const isMap = (v: YamlValue | undefined): v is YamlMap =>
@@ -16,11 +17,20 @@ const isFiniteNumber = (v: YamlValue | undefined): v is number =>
 const isFiniteInt = (v: YamlValue | undefined): v is number =>
   isFiniteNumber(v) && Number.isInteger(v);
 
+const isEmptyList = (v: YamlValue | undefined): v is YamlValue[] =>
+  Array.isArray(v) && v.length === 0;
+
+const isEmptyMap = (v: YamlValue | undefined): v is YamlMap =>
+  isMap(v) && Object.keys(v).length === 0;
+
 const isLiteral = (v: YamlValue | undefined): v is YamlLiteral =>
   v === null ||
   typeof v === "string" ||
   typeof v === "number" ||
   typeof v === "boolean";
+
+const isFieldDefault = (v: YamlValue | undefined): v is FieldDefault =>
+  isLiteral(v) || isEmptyList(v) || isEmptyMap(v);
 
 /** Typed cursor over a YAML value. Missing keys are empty nodes, not throws. */
 export type YamlNode = {
@@ -34,6 +44,7 @@ export type YamlNode = {
   finiteNumber: (key: string) => number | undefined;
   finiteInt: (key: string) => number | undefined;
   literal: (key: string) => YamlLiteral | undefined;
+  fieldDefault: (key: string) => FieldDefault | undefined;
   strings: (key: string) => string[];
   items: () => YamlNode[];
   namedItems: () => Named[];
@@ -66,6 +77,7 @@ const yamlNode = (value: YamlValue | undefined, path = "$"): YamlNode => {
     finiteNumber: pick(isFiniteNumber),
     finiteInt: pick(isFiniteInt),
     literal: pick(isLiteral),
+    fieldDefault: pick(isFieldDefault),
     strings: (key) => {
       const v = at(key);
       return Array.isArray(v) ? v.filter(isString) : [];

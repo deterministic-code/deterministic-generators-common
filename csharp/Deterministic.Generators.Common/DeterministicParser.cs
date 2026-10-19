@@ -101,6 +101,12 @@ public sealed class DeterministicParser
         var references = ReferencesOf(node);
         var size = SizeOf(node);
         var literal = node.Literal("default_value");
+        object? implicitDefault = parsed.IsArray
+            ? new List<object?>()
+            : parsed.IsMap
+                ? new Dictionary<string, object?>(StringComparer.Ordinal)
+                : null;
+        var authored = node.Has("default_value");
         return new TypeField
         {
             Name = name,
@@ -115,9 +121,9 @@ public sealed class DeterministicParser
             HasSize = size is not null,
             MinSize = node.FiniteInt("min_size") is long min ? (int)min : null,
             References = references,
-            HasDefault = node.Has("default_value"),
-            DefaultValue = literal.Present ? literal.Value : null,
-            DefaultIsLiteral = literal.Present,
+            HasDefault = authored || implicitDefault is not null,
+            DefaultValue = literal.Present ? literal.Value : implicitDefault,
+            DefaultIsLiteral = literal.Present || implicitDefault is not null,
         };
     }
 
