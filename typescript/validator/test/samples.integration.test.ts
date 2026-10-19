@@ -73,7 +73,6 @@ const SAMPLE_SPECS: SampleSpec[] = [
       new SpecValidator({
         subdir: "backend",
         name: "app.spec.yaml",
-        version: "1.0.0",
       }),
   },
   {
@@ -184,13 +183,11 @@ const EXAMPLE_STEM: Record<string, () => Validator> = {
     new SpecValidator({
       subdir: "backend",
       name: "app.spec.yaml",
-      version: "1.0.0",
     }),
   backend_app: () =>
     new SpecValidator({
       subdir: "backend",
       name: "app.spec.yaml",
-      version: "1.0.0",
     }),
   frontend_bindings: () => new FrontendBindingsValidator(),
 };

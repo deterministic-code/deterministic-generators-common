@@ -376,3 +376,41 @@ types:
     ]);
   });
 });
+
+describe("collection default_value", () => {
+  test("accepts [] {}, and null when nullable", async () => {
+    const catalog = await loadFieldTypeCatalog();
+    expect(
+      checkFieldDefaults(parsed(fieldDoc("phone[]", "[]")), catalog),
+    ).toEqual({ valid: true, errors: [] });
+    expect(
+      checkFieldDefaults(parsed(fieldDoc("labels{}", "{}")), catalog),
+    ).toEqual({ valid: true, errors: [] });
+    expect(
+      checkFieldDefaults(
+        parsed(fieldDoc("note[]", "null", "            is_nullable: true\n")),
+        catalog,
+      ),
+    ).toEqual({ valid: true, errors: [] });
+    expect(
+      checkFieldDefaults(
+        parsed(fieldDoc("prefs{}", "null", "            is_nullable: true\n")),
+        catalog,
+      ),
+    ).toEqual({ valid: true, errors: [] });
+  });
+
+  test("rejects the wrong collection, a filled collection, and null when required", async () => {
+    const catalog = await loadFieldTypeCatalog();
+    const wrongList = checkFieldDefaults(parsed(fieldDoc("phone[]", "{}")), catalog);
+    const wrongMap = checkFieldDefaults(parsed(fieldDoc("labels{}", "[]")), catalog);
+    const requiredNull = checkFieldDefaults(parsed(fieldDoc("phone[]", "null")), catalog);
+    const filled = checkFieldDefaults(parsed(fieldDoc("phone[]", "[1]")), catalog);
+    expect(wrongList.errors[0]?.message).toBe("default_value for phone[] must be []");
+    expect(wrongMap.errors[0]?.message).toBe("default_value for labels{} must be {}");
+    expect(requiredNull.errors[0]?.message).toBe(
+      "default_value null is only allowed when is_nullable is true",
+    );
+    expect(filled.errors[0]?.message).toBe("default_value for phone[] must be []");
+  });
+});

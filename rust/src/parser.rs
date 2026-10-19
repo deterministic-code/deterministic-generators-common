@@ -16,7 +16,7 @@ use crate::specification::{
     RouteCandidate, SeedRow, SeedValue, ServiceCandidate, Type, TypeKind, DATASOURCE_SEEDS_YAML,
     DATASOURCE_YAML, ROUTES_YAML, SERVICES_YAML, TYPES_YAML,
 };
-use crate::yaml_node::{YamlLiteral, YamlNode, YamlValue};
+use crate::yaml_node::{YamlNode, YamlValue};
 
 const SHORTHAND_VERB_RE: &str = r"^(?i)(get|put|delete)_";
 
@@ -275,13 +275,9 @@ fn seed_cells(node: &YamlNode) -> IndexMap<String, SeedValue> {
     let mut out = IndexMap::new();
     for key in record.keys() {
         if let Some(value) = node.literal(key) {
-            let seed = match value {
-                YamlLiteral::String(value) => SeedValue::String(value),
-                YamlLiteral::Number(value) => SeedValue::Number(value),
-                YamlLiteral::Bool(value) => SeedValue::Bool(value),
-                YamlLiteral::Null => SeedValue::Null,
-            };
-            out.insert(key.clone(), seed);
+            if let Some(seed) = Option::<SeedValue>::from(value) {
+                out.insert(key.clone(), seed);
+            }
         }
     }
     out

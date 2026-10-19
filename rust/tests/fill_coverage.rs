@@ -811,11 +811,37 @@ fn internals_match_the_typescript_semantic_suite() {
         },
     );
 
-    let _ = check_field_default_semantics(
+    let collection_defaults = check_field_default_semantics(
         &parse_yaml_with_positions(
             r#"types:
   - user:
       fields:
+        - phones:
+            type: phone[]
+            default_value: []
+        - labels:
+            type: labels{}
+            default_value: {}
+        - notes:
+            type: note[]
+            is_nullable: true
+            default_value: null
+        - prefs:
+            type: prefs{}
+            is_nullable: true
+            default_value: null
+        - bad_list:
+            type: phone[]
+            default_value: {}
+        - bad_map:
+            type: labels{}
+            default_value: []
+        - required_null:
+            type: phone[]
+            default_value: null
+        - filled:
+            type: phone[]
+            default_value: [1]
         - flag:
             type: boolean
             default_value: maybe
@@ -851,6 +877,18 @@ includes:
         ),
         &ValidateOptions::default(),
     );
+    assert!(collection_defaults
+        .errors
+        .iter()
+        .any(|e| e.message.contains("must be []")));
+    assert!(collection_defaults
+        .errors
+        .iter()
+        .any(|e| e.message.contains("must be {}")));
+    assert!(collection_defaults
+        .errors
+        .iter()
+        .any(|e| e.message.contains("is_nullable is true")));
 
     fs::write(dir.path().join("list.yaml"), "- 1\n").unwrap();
     fs::create_dir(dir.path().join("nested")).unwrap();

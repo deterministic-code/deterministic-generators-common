@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -404,9 +405,15 @@ static class FieldDefaults
         {
             if (!def.ContainsKey("default_value")) return;
             if (def.GetValueOrDefault("type") is not string typeName) return;
+            var valuePath = $"{path}/default_value";
+            if (typeName.EndsWith("[]", StringComparison.Ordinal) || typeName.EndsWith("{}", StringComparison.Ordinal))
+            {
+                var message = CollectionError(typeName, def["default_value"], def.GetValueOrDefault("is_nullable") is true);
+                if (message is not null) errors.Add(YamlData.Err(parsed, valuePath, message));
+                return;
+            }
             if (!catalog.TryGetValue(typeName, out var field)) return;
             var value = def["default_value"];
-            var valuePath = $"{path}/default_value";
             if (value is string text)
             {
                 var token = TokenError(field, text);
@@ -422,6 +429,15 @@ static class FieldDefaults
             if (range is not null) errors.Add(YamlData.Err(parsed, valuePath, range));
         });
         return errors.Count == 0 ? SpecValidationResult.Ok() : SpecValidationResult.Fail(errors);
+    }
+
+    static string? CollectionError(string typeName, object? value, bool nullable)
+    {
+        if (value is null)
+            return nullable ? null : "default_value null is only allowed when is_nullable is true";
+        if (typeName.EndsWith("[]", StringComparison.Ordinal))
+            return value is IList { Count: 0 } and not IDictionary ? null : $"default_value for {typeName} must be []";
+        return value is IDictionary { Count: 0 } ? null : $"default_value for {typeName} must be {{}}";
     }
 
     static string? TokenError(FieldCatalog.FieldType catalog, string value)

@@ -21,7 +21,7 @@ export type TypeField = {
   minSize?: number;
   references?: string | [string, string];
   hasDefault?: boolean;
-  defaultValue?: string | number | boolean | null;
+  defaultValue?: string | number | boolean | null | object;
 };
 
 /** Primary label. `inherit` may also carry `union` — those members compose. */

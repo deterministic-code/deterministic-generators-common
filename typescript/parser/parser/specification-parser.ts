@@ -178,7 +178,7 @@ class Parser {
   }
 
   async parse(
-    settings: Record<string, string>,
+    _settings: Record<string, string>,
     opts?: { serviceClassName?: (entity: string) => string },
   ): Promise<IDeterministic> {
     const reader = this.#reader;
@@ -284,6 +284,7 @@ class Parser {
     const references = referencesOf(node);
     const size = sizeOf(node);
     const minSize = node.finiteInt("min_size");
+    const collectionDefault = parsed.isArray ? [] : parsed.isMap ? {} : undefined;
     return {
       name,
       type: rawType,
@@ -297,8 +298,10 @@ class Parser {
       ...(minSize !== undefined ? { minSize } : {}),
       ...(references !== undefined ? { references } : {}),
       ...(node.has("default_value")
-        ? { hasDefault: true, defaultValue: node.literal("default_value") }
-        : {}),
+        ? { hasDefault: true, defaultValue: node.fieldDefault("default_value") }
+        : collectionDefault !== undefined
+          ? { hasDefault: true, defaultValue: collectionDefault }
+          : {}),
     };
   }
 
@@ -837,7 +840,7 @@ class Parser {
 
   #extractCustomRoutes(
     root: YamlNode,
-    dsByName: Map<string, DatasourceTable>,
+    _dsByName: Map<string, DatasourceTable>,
     typeByName: Map<string, Type>,
   ): CustomRouteEntry[] {
     const customs: CustomRouteEntry[] = [];

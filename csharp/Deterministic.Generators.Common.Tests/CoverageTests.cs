@@ -192,6 +192,12 @@ public class CoverageTests
                   fields:
                     - body:
                         type: string
+                    - phones:
+                        type: phone[]
+                    - labels:
+                        type: labels{}
+                        references: labels.key
+                        default_value: {}
               - child:
                   inherits: person
                   ids: [email]
@@ -301,6 +307,10 @@ public class CoverageTests
             ["datasource_seeds.yaml"] = seeds,
         }, new ParseOptions { ServiceClassName = name => name + "Service" });
 
+        var noteType = det.Types.First(type => type.Name == "note");
+        Assert.True(noteType.Fields.First(field => field.Name == "phones").HasDefault);
+        Assert.IsAssignableFrom<System.Collections.IList>(noteType.Fields.First(field => field.Name == "phones").DefaultValue);
+        Assert.True(noteType.Fields.First(field => field.Name == "labels").HasDefault);
         var user = det.ExpandedTypes.First(type => type.Name == "user");
         Assert.Equal(["id", "email", "bio", "code", "span", "flag", "nick", "display_name"], user.Fields.Select(field => field.Name));
         Assert.Equal("unlimited", user.Fields.First(field => field.Name == "code").Size);
@@ -561,6 +571,11 @@ public class CoverageTests
         Assert.True(node.Literal("n").Present);
         Assert.True(node.Literal("q").Present);
         Assert.Equal("", node.Literal("q").Value);
+        var emptyDefaults = YamlNode.FromYaml("list: []\nmap: {}\nfull: [1]\nobj: { a: 1 }\n");
+        Assert.True(emptyDefaults.Literal("list").Present);
+        Assert.True(emptyDefaults.Literal("map").Present);
+        Assert.False(emptyDefaults.Literal("full").Present);
+        Assert.False(emptyDefaults.Literal("obj").Present);
         Assert.Single(node.NamedList("list"));
         Assert.Equal(1L, node.Child("alias").Value);
         var broken = Assert.Throws<InvalidOperationException>(() => YamlNode.FromYaml("a: *missing\n"));
@@ -946,6 +961,43 @@ public class CoverageTests
         Assert.Contains("length must equal size", defaultText);
         Assert.Contains("not a valid datetime default", defaultText);
         Assert.Contains("not a valid integer default", defaultText);
+        Assert.True(FieldDefaults.Check(Doc("""
+            types:
+              - t:
+                  fields:
+                    - phones:
+                        type: phone[]
+                        default_value: []
+                    - labels:
+                        type: labels{}
+                        default_value: {}
+                    - notes:
+                        type: note[]
+                        is_nullable: true
+                        default_value: null
+                    - prefs:
+                        type: prefs{}
+                        is_nullable: true
+                        default_value: null
+            """), catalog).Valid);
+        var collectionDefaults = FieldDefaults.Check(Doc("""
+            types:
+              - t:
+                  fields:
+                    - phones:
+                        type: phone[]
+                        default_value: {}
+                    - labels:
+                        type: labels{}
+                        default_value: []
+                    - notes:
+                        type: note[]
+                        default_value: null
+            """), catalog);
+        var collectionText = string.Join("\n", collectionDefaults.Errors.Select(error => error.Message));
+        Assert.Contains("must be []", collectionText);
+        Assert.Contains("must be {}", collectionText);
+        Assert.Contains("is_nullable is true", collectionText);
         var parsedCatalog = FieldCatalog.Parse("""
             types:
               - integer:

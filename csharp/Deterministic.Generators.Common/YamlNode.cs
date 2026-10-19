@@ -322,11 +322,15 @@ public sealed class YamlNode
 
     public YamlPick Literal(string key)
     {
-        if (Lookup(key) is not YamlScalar scalar) return default;
-        if (scalar.Value is null || scalar.Value is string || scalar.Value is bool || scalar.Value is long
-            || scalar.Value is ulong || scalar.Value is double)
-            return new YamlPick(true, BoxNumber(scalar.Value));
-        return default;
+        var found = Lookup(key);
+        return found switch
+        {
+            YamlScalar scalar when scalar.Value is null or string or bool or long or ulong or double
+                => new YamlPick(true, BoxNumber(scalar.Value)),
+            YamlSeq { Items.Count: 0 } => new YamlPick(true, new List<object?>()),
+            YamlMap { Entries.Count: 0 } => new YamlPick(true, new Dictionary<string, object?>(StringComparer.Ordinal)),
+            _ => default,
+        };
     }
 
     public IReadOnlyList<string> Strings(string key)

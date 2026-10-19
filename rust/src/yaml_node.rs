@@ -10,6 +10,8 @@ pub enum YamlLiteral {
     Number(f64),
     Bool(bool),
     Null,
+    EmptyArray,
+    EmptyMap,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +49,11 @@ mod tests {
         assert!(alias.child("b").value().is_some());
         let complex = YamlNode::from_yaml("? { nested: 1 }\n: 2\n1: x\ntrue: y\nnull: z\n1.5: q\n").unwrap();
         assert!(complex.record().is_some());
+        let empty = YamlNode::from_yaml("list: []\nmap: {}\nfull: [1]\nobj: { a: 1 }\n").unwrap();
+        assert_eq!(empty.literal("list"), Some(YamlLiteral::EmptyArray));
+        assert_eq!(empty.literal("map"), Some(YamlLiteral::EmptyMap));
+        assert_eq!(empty.literal("full"), None);
+        assert_eq!(empty.literal("obj"), None);
     }
 }
 
@@ -142,6 +149,8 @@ impl YamlNode {
             Some(YamlValue::String(value)) => Some(YamlLiteral::String(value.clone())),
             Some(YamlValue::Number(value)) => Some(YamlLiteral::Number(*value)),
             Some(YamlValue::Bool(value)) => Some(YamlLiteral::Bool(*value)),
+            Some(YamlValue::Array(items)) if items.is_empty() => Some(YamlLiteral::EmptyArray),
+            Some(YamlValue::Map(map)) if map.is_empty() => Some(YamlLiteral::EmptyMap),
             _ => None,
         }
     }
