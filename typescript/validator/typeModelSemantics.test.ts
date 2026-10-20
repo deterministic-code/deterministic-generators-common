@@ -104,15 +104,17 @@ types:
     expect(result.errors[0]?.message).toMatch(/unknown inherit target 'missing'/);
   });
 
-  test("accepts inherits set and an owned dictionary", async () => {
+  test("accepts inherits set and a dictionary view over a datasource", async () => {
     const result = await validator().validate(doc(`types:
   - user:
+      tags: [datasource_type]
       inherits: set
       fields:
         - email:
             type: string
   - settings:
-      inherits: dictionary
+      tags: [datasource_type]
+      inherits: set
       fields:
         - user_id:
             references: user.id
@@ -120,15 +122,121 @@ types:
             type: string
         - value:
             type: string
+  - settings_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+        - value:
+            type: string
+  - user_view:
+      tags: [view_type]
+      inherits: user
+      fields:
+        - extras:
+            type: settings_map{}
+            references: settings.user_id
 `));
-    expect(result).toEqual({ valid: true, errors: [] });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  test("accepts dictionary key and value roles that reference other columns", async () => {
+    const result = await validator().validate(doc(`types:
+  - phone:
+      tags: [datasource_type]
+      inherits: set
+  - phone_attribute:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - phone_id:
+            references: phone.id
+        - attribute_name:
+            type: string
+        - attribute_value:
+            type: string
+  - phone_attribute_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+            references: phone_attribute.attribute_name
+        - value:
+            type: string
+            references: phone_attribute.attribute_value
+  - phone_view:
+      tags: [view_type]
+      inherits: phone
+      fields:
+        - attributes:
+            type: phone_attribute_map{}
+            references: phone_attribute.phone_id
+`));
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  test("accepts dictionary key and value roles that reference other columns", async () => {
+    const result = await validator().validate(doc(`types:
+  - phone:
+      tags: [datasource_type]
+      inherits: set
+  - phone_attribute:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - phone_id:
+            references: phone.id
+        - attribute_name:
+            type: string
+        - attribute_value:
+            type: string
+  - phone_attribute_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+            references: phone_attribute.attribute_name
+        - value:
+            type: string
+            references: phone_attribute.attribute_value
+  - phone_view:
+      tags: [view_type]
+      inherits: phone
+      fields:
+        - attributes:
+            type: phone_attribute_map{}
+            references: phone_attribute.phone_id
+`));
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 
   test("accepts a view-only dictionary and an explicit {} map field", () => {
     const result = checkTypeModel(
       parsed(`version: 1.0.0
 types:
+  - contact:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - display_name:
+            type: string
   - card_labels:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - contact_id:
+            references: contact.id
+        - key:
+            type: string
+        - value:
+            type: string
+  - card_labels_map:
       tags: [view_type]
       inherits: dictionary
       fields:
@@ -138,12 +246,11 @@ types:
             type: string
   - contact_card:
       tags: [view_type]
+      inherits: contact
       fields:
-        - display_name:
-            type: string
         - labels:
-            type: card_labels{}
-            references: card_labels.key
+            type: card_labels_map{}
+            references: card_labels.contact_id
 `),
     );
     expect(result).toEqual({ valid: true, errors: [] });
@@ -166,7 +273,7 @@ types:
     expect(dual.valid).toBe(false);
     expect(
       dual.errors.some((e) =>
-        /must not be tagged both datasource_type and view_type/.test(e.message),
+        /must not be tagged datasource_type/.test(e.message),
       ),
     ).toBe(true);
 
@@ -193,7 +300,7 @@ types:
     expect(viewOwner.valid).toBe(false);
     expect(
       viewOwner.errors.some((e) =>
-        /view-only dictionary type labels must not reference an owner identity/.test(
+        /dictionary type labels must not reference an owner identity/.test(
           e.message,
         ),
       ),
@@ -223,9 +330,20 @@ types:
       parsed(`version: 1.0.0
 types:
   - user:
+      tags: [datasource_type]
       inherits: set
       fields:
         - email:
+            type: string
+  - flags:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - user_id:
+            references: user.id
+        - key:
+            type: string
+        - value:
             type: string
   - card_labels:
       tags: [view_type]
@@ -234,28 +352,14 @@ types:
         - key:
             type: string
         - value:
-            type: string
-  - flags:
-      tags: [datasource_type]
-      inherits: dictionary
-      fields:
-        - user_id:
-            references: user.id
-        - key:
-            type: string
-        - value:
             type: string[]
-  - maps:
-      tags: [datasource_type]
-      inherits: dictionary
+  - user_view:
+      tags: [view_type]
+      inherits: user
       fields:
-        - user_id:
-            references: user.id
-        - key:
-            type: string
-        - value:
+        - flags:
             type: card_labels{}
-            references: card_labels.key
+            references: flags.user_id
 `),
     );
     expect(result).toEqual({ valid: true, errors: [] });
@@ -277,11 +381,9 @@ types:
         - body:
             type: string
   - settings:
-      tags: [datasource_type]
+      tags: [view_type]
       inherits: dictionary
       fields:
-        - user_id:
-            references: user.id
         - key:
             type: string
         - value:
@@ -298,20 +400,14 @@ types:
     ).toBe(true);
   });
 
-  test("rejects a dictionary missing key, value, or an owner identity reference", () => {
+  test("rejects a dictionary missing key or value, or tagged as a table", () => {
     const missingKey = checkTypeModel(
       parsed(`version: 1.0.0
 types:
-  - user:
-      inherits: set
-      fields:
-        - email:
-            type: string
   - settings:
+      tags: [view_type]
       inherits: dictionary
       fields:
-        - user_id:
-            references: user.id
         - value:
             type: string
 `),
@@ -326,16 +422,10 @@ types:
     const missingValue = checkTypeModel(
       parsed(`version: 1.0.0
 types:
-  - user:
-      inherits: set
-      fields:
-        - email:
-            type: string
   - settings:
+      tags: [view_type]
       inherits: dictionary
       fields:
-        - user_id:
-            references: user.id
         - key:
             type: string
 `),
@@ -347,7 +437,7 @@ types:
       ),
     ).toBe(true);
 
-    const missingOwner = checkTypeModel(
+    const untagged = checkTypeModel(
       parsed(`version: 1.0.0
 types:
   - settings:
@@ -357,120 +447,144 @@ types:
             type: string
         - value:
             type: string
+`),
+    );
+    expect(untagged.valid).toBe(false);
+    expect(
+      untagged.errors.some((e) =>
+        /dictionary type settings must be tagged view_type/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects a {} field whose datasource is missing the pair columns", () => {
+    const result = checkTypeModel(
+      parsed(`version: 1.0.0
+types:
+  - user:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - email:
+            type: string
+  - settings:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - user_id:
+            references: user.id
+  - settings_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+        - value:
+            type: string
+  - user_view:
+      tags: [view_type]
+      inherits: user
+      fields:
+        - extras:
+            type: settings_map{}
+            references: settings.user_id
+`),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        /settings must include a key column/.test(e.message),
+      ),
+    ).toBe(true);
+    expect(
+      result.errors.some((e) =>
+        /settings must include a value column/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects dictionary roles that miss the referenced datasource columns", () => {
+    const result = checkTypeModel(
+      parsed(`version: 1.0.0
+types:
+  - phone:
+      tags: [datasource_type]
+      inherits: set
+  - phone_attribute:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - phone_id:
+            references: phone.id
+        - other:
+            type: string
+  - attrs:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+            references: phone.other
+        - value:
+            type: string
+  - phone_view:
+      tags: [view_type]
+      inherits: phone
+      fields:
+        - attributes:
+            type: attrs{}
+            references: phone_attribute.phone_id
+`),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        /dictionary key must reference a column on phone_attribute/.test(e.message),
+      ),
+    ).toBe(true);
+    expect(
+      result.errors.some((e) =>
+        /phone_attribute must include a value column/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects a {} field that does not reference a datasource owner column", () => {
+    const missingOwner = checkTypeModel(
+      parsed(`version: 1.0.0
+types:
+  - settings:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+        - value:
+            type: string
+  - bag:
+      tags: [view_type]
+      fields:
+        - extras:
+            type: settings{}
+            references: settings.key
 `),
     );
     expect(missingOwner.valid).toBe(false);
     expect(
       missingOwner.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
-      ),
-    ).toBe(true);
-
-    const nonIdentity = checkTypeModel(
-      parsed(`version: 1.0.0
-types:
-  - note:
-      fields:
-        - body:
-            type: string
-  - settings:
-      inherits: dictionary
-      fields:
-        - note_body:
-            references: note.body
-        - key:
-            type: string
-        - value:
-            type: string
-`),
-    );
-    expect(nonIdentity.valid).toBe(false);
-    expect(
-      nonIdentity.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
-      ),
-    ).toBe(true);
-
-    const bareAndSelf = checkTypeModel(
-      parsed(`version: 1.0.0
-types:
-  - settings:
-      inherits: dictionary
-      fields:
-        - owner_id:
-            references: id
-        - other_id:
-            references: settings.key
-        - key:
-            type: string
-        - value:
-            type: string
-`),
-    );
-    expect(bareAndSelf.valid).toBe(false);
-    expect(
-      bareAndSelf.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
-      ),
-    ).toBe(true);
-
-    const unknownOwner = checkTypeModel(
-      parsed(`version: 1.0.0
-types:
-  - settings:
-      inherits: dictionary
-      fields:
-        - owner_id:
-            references: ghost.id
-        - key:
-            type: string
-        - value:
-            type: string
-`),
-    );
-    expect(unknownOwner.valid).toBe(false);
-    expect(
-      unknownOwner.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
-      ),
-    ).toBe(true);
-
-    const mixedOwner = checkTypeModel(
-      parsed(`version: 1.0.0
-types:
-  - left:
-      inherits: set
-  - right:
-      inherits: set
-  - settings:
-      inherits: dictionary
-      fields:
-        - pair:
-            references: [left.id, right.id]
-        - key:
-            type: string
-        - value:
-            type: string
-`),
-    );
-    expect(mixedOwner.valid).toBe(false);
-    expect(
-      mixedOwner.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
+        /bag.extras must reference a datasource_type owner identity column/.test(
+          e.message,
+        ),
       ),
     ).toBe(true);
   });
 
-  test("accepts a dictionary owned by a composite identity", () => {
+  test("accepts a dictionary whose datasource is owned by a composite identity", () => {
     const result = checkTypeModel(
       parsed(`version: 1.0.0
 types:
   - link:
+      tags: [datasource_type]
       ids: [left_id, right_id]
       fields:
         - left_id:
@@ -478,7 +592,8 @@ types:
         - right_id:
             type: integer
   - settings:
-      inherits: dictionary
+      tags: [datasource_type]
+      inherits: set
       fields:
         - pair:
             references: [link.left_id, link.right_id]
@@ -486,24 +601,42 @@ types:
             type: string
         - value:
             type: string
+  - settings_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+        - value:
+            type: string
+  - link_view:
+      tags: [view_type]
+      inherits: link
+      fields:
+        - extras:
+            type: settings_map{}
+            references: settings.pair
 `),
     );
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
-  test("accepts a dictionary owned by an inherited identity", () => {
+  test("accepts a dictionary whose datasource is owned by an inherited identity", () => {
     const result = checkTypeModel(
       parsed(`version: 1.0.0
 types:
   - keyed:
+      tags: [datasource_type]
       fields:
         - code:
             type: integer
             is_id: true
   - alias:
+      tags: [datasource_type]
       inherits: keyed
   - settings:
-      inherits: dictionary
+      tags: [datasource_type]
+      inherits: set
       fields:
         - owner_id:
             references: alias.code
@@ -511,12 +644,27 @@ types:
             type: string
         - value:
             type: string
+  - settings_map:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+        - value:
+            type: string
+  - alias_view:
+      tags: [view_type]
+      inherits: alias
+      fields:
+        - extras:
+            type: settings_map{}
+            references: settings.owner_id
 `),
     );
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
-  test("omits the dictionary owner FK from a nested compose", () => {
+  test("omits nothing extra when unioning a dictionary view", () => {
     const doc = parsed(`version: 1.0.0
 types:
   - file:
@@ -525,10 +673,9 @@ types:
         - name:
             type: string
   - settings:
+      tags: [view_type]
       inherits: dictionary
       fields:
-        - setting_id:
-            references: file.id
         - key:
             type: string
         - value:
@@ -546,7 +693,7 @@ types:
     ]);
   });
 
-  test("does not treat a cycle or unknown parent as an owner identity", () => {
+  test("rejects a dictionary view that references an owner identity", () => {
     const cycled = checkTypeModel(
       parsed(`version: 1.0.0
 types:
@@ -557,6 +704,7 @@ types:
       inherits: a
       fields: []
   - settings:
+      tags: [view_type]
       inherits: dictionary
       fields:
         - owner_id:
@@ -570,22 +718,27 @@ types:
     expect(cycled.valid).toBe(false);
     expect(
       cycled.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
+        /dictionary type settings must not reference an owner identity/.test(
+          e.message,
+        ),
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     const unknownParent = checkTypeModel(
       parsed(`version: 1.0.0
 types:
-  - alias:
-      inherits: ghost
-      fields: []
+  - user:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - email:
+            type: string
   - settings:
+      tags: [view_type]
       inherits: dictionary
       fields:
         - owner_id:
-            references: alias.id
+            references: user.id
         - key:
             type: string
         - value:
@@ -595,8 +748,9 @@ types:
     expect(unknownParent.valid).toBe(false);
     expect(
       unknownParent.errors.some((e) =>
-        /dictionary type settings must have one field that references the owner identity/
-          .test(e.message),
+        /dictionary type settings must not reference an owner identity/.test(
+          e.message,
+        ),
       ),
     ).toBe(true);
   });

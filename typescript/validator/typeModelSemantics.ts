@@ -700,9 +700,6 @@ const PRIMITIVE_FIELD_TYPES = new Set([
 const fieldTypeBase = (raw: string): string =>
   raw.endsWith("[]") || raw.endsWith("{}") ? raw.slice(0, -2) : raw;
 
-const isViewOnlyDictionary = (info: TypeInfo): boolean =>
-  info.tags.includes("view_type") && !info.tags.includes("datasource_type");
-
 function checkDictionary(
   parsed: ParsedYaml,
   types: Map<string, TypeInfo>,
@@ -728,36 +725,34 @@ function checkDictionary(
         ),
       );
     }
-    const isDatasource = info.tags.includes("datasource_type");
-    const isView = info.tags.includes("view_type");
-    if (isDatasource && isView) {
+    if (info.tags.includes("datasource_type")) {
       errors.push(
         specErr(
           parsed,
           info.path,
-          `dictionary type ${name} must not be tagged both datasource_type and view_type`,
+          `dictionary type ${name} must not be tagged datasource_type`,
         ),
       );
     }
-    const ownerCount = [...info.fieldReferences.values()].filter((ref) =>
-      isOwnerIdentityRef(ref, name, types),
-    ).length;
-    if (isViewOnlyDictionary(info)) {
-      if (ownerCount > 0) {
-        errors.push(
-          specErr(
-            parsed,
-            info.path,
-            `view-only dictionary type ${name} must not reference an owner identity`,
-          ),
-        );
-      }
-    } else if (ownerCount === 0) {
+    if (!info.tags.includes("view_type")) {
       errors.push(
         specErr(
           parsed,
           info.path,
-          `dictionary type ${name} must have one field that references the owner identity`,
+          `dictionary type ${name} must be tagged view_type`,
+        ),
+      );
+    }
+    if (
+      [...info.fieldReferences.values()].some((ref) =>
+        isOwnerIdentityRef(ref, name, types),
+      )
+    ) {
+      errors.push(
+        specErr(
+          parsed,
+          info.path,
+          `dictionary type ${name} must not reference an owner identity`,
         ),
       );
     }
@@ -781,6 +776,31 @@ function checkDictionary(
   return errors;
 }
 
+const dottedRef = (raw: string | [string, string] | undefined): string | undefined =>
+  typeof raw === "string" ? raw : undefined;
+
+function resolveRoleColumn(
+  dict: TypeInfo,
+  role: string,
+  tableName: string,
+  types: Map<string, TypeInfo>,
+): { column: string } | { error: string } {
+  const known = fieldNamesOf(tableName, types);
+  const ref = dottedRef(dict.fieldReferences.get(role));
+  if (ref !== undefined) {
+    const split = splitRemoveField(ref);
+    if (split.source !== tableName || !known.has(split.name)) {
+      return {
+        error: `dictionary ${role} must reference a column on ${tableName}`,
+      };
+    }
+    return { column: split.name };
+  }
+  return known.has(role)
+    ? { column: role }
+    : { error: `${tableName} must include a ${role} column` };
+}
+
 function checkMapFields(
   parsed: ParsedYaml,
   types: Map<string, TypeInfo>,
@@ -802,16 +822,51 @@ function checkMapFields(
         );
         continue;
       }
-      const expected = `${dictName}.key`;
-      const ref = info.fieldReferences.get(fieldName);
-      if (ref !== expected) {
+      const ref = dottedRef(info.fieldReferences.get(fieldName));
+      const split = ref === undefined ? undefined : splitRemoveField(ref);
+      const table = split?.source === undefined ? undefined : types.get(split.source);
+      const ownerRef =
+        table === undefined ? undefined : table.fieldReferences.get(split!.name);
+      if (
+        split?.source === undefined ||
+        table === undefined ||
+        !table.tags.includes("datasource_type") ||
+        ownerRef === undefined ||
+        !isOwnerIdentityRef(ownerRef, split.source, types)
+      ) {
         errors.push(
           specErr(
             parsed,
             `${fieldPath}/references`,
-            `${typeName}.${fieldName} must reference ${expected}`,
+            `${typeName}.${fieldName} must reference a datasource_type owner identity column`,
           ),
         );
+        continue;
+      }
+      const key = resolveRoleColumn(dict, "key", split.source, types);
+      if ("error" in key) {
+        errors.push(specErr(parsed, `${fieldPath}/references`, key.error));
+      }
+      const valueType = dict.fieldTypes.get("value");
+      const valueBase = valueType === undefined ? undefined : fieldTypeBase(valueType);
+      const nested =
+        valueBase !== undefined && !PRIMITIVE_FIELD_TYPES.has(valueBase)
+          ? types.get(valueBase)
+          : undefined;
+      if (nested === undefined) {
+        const value = resolveRoleColumn(dict, "value", split.source, types);
+        if ("error" in value) {
+          errors.push(specErr(parsed, `${fieldPath}/references`, value.error));
+        }
+        continue;
+      }
+      for (const role of nested.fields.keys()) {
+        const raw = nested.fieldTypes.get(role);
+        if (raw !== undefined && (raw.endsWith("[]") || raw.endsWith("{}"))) continue;
+        const column = resolveRoleColumn(nested, role, split.source, types);
+        if ("error" in column) {
+          errors.push(specErr(parsed, `${fieldPath}/references`, column.error));
+        }
       }
     }
   }

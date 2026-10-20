@@ -156,18 +156,29 @@ types:
             type: phone[]
             references: phone.contact_id
         - settings:
-            type: contact_settings{}
-            references: contact_settings.key
+            type: contact_settings_map{}
+            references: contact_settings.contact_id
         - prefs:
-            type: contact_preferences{}
-            references: contact_preferences.key
+            type: contact_preferences_map{}
+            references: contact_preferences.contact_id
   - contact_settings:
       tags:
         - datasource_type
-      inherits: dictionary
+      inherits: base
       fields:
         - contact_id:
             references: contacts_base.id
+        - key:
+            type: string
+            size: 64
+        - value:
+            type: string
+            size: unlimited
+  - contact_settings_map:
+      tags:
+        - view_type
+      inherits: dictionary
+      fields:
         - key:
             type: string
             size: 64
@@ -187,10 +198,24 @@ types:
   - contact_preferences:
       tags:
         - datasource_type
-      inherits: dictionary
+      inherits: base
       fields:
         - contact_id:
             references: contacts_base.id
+        - key:
+            type: string
+            size: 64
+        - locale:
+            type: string
+            size: 16
+        - timezone:
+            type: string
+            size: 64
+  - contact_preferences_map:
+      tags:
+        - view_type
+      inherits: dictionary
+      fields:
         - key:
             type: string
             size: 64
@@ -214,9 +239,6 @@ types:
         - display_name:
             type: string
             size: 256
-        - labels:
-            type: card_labels{}
-            references: card_labels.key
   - address:
       tags:
         - view_type
