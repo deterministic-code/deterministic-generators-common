@@ -766,6 +766,34 @@ fn field_type_base(raw: &str) -> &str {
     raw.strip_suffix("[]").or_else(|| raw.strip_suffix("{}")).unwrap_or(raw)
 }
 
+fn dotted_ref(raw: Option<&FieldRef>) -> Option<&str> {
+    match raw {
+        Some(FieldRef::One(text)) => Some(text.as_str()),
+        _ => None,
+    }
+}
+
+fn resolve_role_column(
+    dict: &TypeInfo,
+    role: &str,
+    table_name: &str,
+    types: &IndexMap<String, TypeInfo>,
+) -> Result<String, String> {
+    let known = field_names_of(table_name, types);
+    if let Some(reference) = dotted_ref(dict.field_references.get(role)) {
+        let (source, name) = split_remove_field(reference);
+        if source.as_deref() != Some(table_name) || !known.contains(&name) {
+            return Err(format!("dictionary {role} must reference a column on {table_name}"));
+        }
+        return Ok(name);
+    }
+    if known.contains(role) {
+        Ok(role.to_string())
+    } else {
+        Err(format!("{table_name} must include a {role} column"))
+    }
+}
+
 fn check_dictionary(parsed: &ParsedYaml, types: &IndexMap<String, TypeInfo>) -> Vec<SpecValidationError> {
     let mut errors = Vec::new();
     for (name, info) in types {
@@ -778,33 +806,29 @@ fn check_dictionary(parsed: &ParsedYaml, types: &IndexMap<String, TypeInfo>) -> 
         if !info.fields.contains_key("value") {
             errors.push(spec_err(parsed, &format!("{}/fields", info.path), format!("dictionary type {name} must include a value field")));
         }
-        let is_datasource = info.tags.iter().any(|tag| tag == "datasource_type");
-        let is_view = info.tags.iter().any(|tag| tag == "view_type");
-        if is_datasource && is_view {
+        if info.tags.iter().any(|tag| tag == "datasource_type") {
             errors.push(spec_err(
                 parsed,
                 &info.path,
-                format!("dictionary type {name} must not be tagged both datasource_type and view_type"),
+                format!("dictionary type {name} must not be tagged datasource_type"),
             ));
         }
-        let owner_count = info
-            .field_references
-            .values()
-            .filter(|reference| is_owner_identity_ref(reference, name, types))
-            .count();
-        if is_view && !is_datasource {
-            if owner_count > 0 {
-                errors.push(spec_err(
-                    parsed,
-                    &info.path,
-                    format!("view-only dictionary type {name} must not reference an owner identity"),
-                ));
-            }
-        } else if owner_count == 0 {
+        if !info.tags.iter().any(|tag| tag == "view_type") {
             errors.push(spec_err(
                 parsed,
                 &info.path,
-                format!("dictionary type {name} must have one field that references the owner identity"),
+                format!("dictionary type {name} must be tagged view_type"),
+            ));
+        }
+        if info
+            .field_references
+            .values()
+            .any(|reference| is_owner_identity_ref(reference, name, types))
+        {
+            errors.push(spec_err(
+                parsed,
+                &info.path,
+                format!("dictionary type {name} must not reference an owner identity"),
             ));
         }
         if let Some(value_type) = info.field_types.get("value") {
@@ -838,17 +862,45 @@ fn check_map_fields(parsed: &ParsedYaml, types: &IndexMap<String, TypeInfo>) -> 
                 ));
                 continue;
             }
-            let expected = format!("{dict_name}.key");
-            let matches = match info.field_references.get(field_name) {
-                Some(FieldRef::One(text)) => text == &expected,
-                _ => false,
-            };
-            if !matches {
+            let dict = dict.unwrap();
+            let split = dotted_ref(info.field_references.get(field_name)).map(split_remove_field);
+            let table = split.as_ref().and_then(|(source, _)| source.as_ref().and_then(|name| types.get(name)));
+            let owner_ref = table.and_then(|item| {
+                split.as_ref().and_then(|(_, column)| item.field_references.get(column))
+            });
+            let table_name = split.as_ref().and_then(|(source, _)| source.as_deref());
+            if table_name.is_none()
+                || table.is_none_or(|item| !item.tags.iter().any(|tag| tag == "datasource_type"))
+                || owner_ref.is_none_or(|reference| {
+                    !is_owner_identity_ref(reference, table_name.unwrap(), types)
+                })
+            {
                 errors.push(spec_err(
                     parsed,
                     &format!("{field_path}/references"),
-                    format!("{type_name}.{field_name} must reference {expected}"),
+                    format!("{type_name}.{field_name} must reference a datasource_type owner identity column"),
                 ));
+                continue;
+            }
+            let table_name = table_name.unwrap();
+            if let Err(message) = resolve_role_column(dict, "key", table_name, types) {
+                errors.push(spec_err(parsed, &format!("{field_path}/references"), message));
+            }
+            let nested = dict.field_types.get("value").and_then(|value_type| {
+                let base = field_type_base(value_type);
+                (!PRIMITIVES.contains(&base)).then(|| types.get(base)).flatten()
+            });
+            if let Some(nested) = nested {
+                for role in nested.fields.keys() {
+                    if nested.field_types.get(role).is_some_and(|raw| raw.ends_with("[]") || raw.ends_with("{}")) {
+                        continue;
+                    }
+                    if let Err(message) = resolve_role_column(nested, role, table_name, types) {
+                        errors.push(spec_err(parsed, &format!("{field_path}/references"), message));
+                    }
+                }
+            } else if let Err(message) = resolve_role_column(dict, "value", table_name, types) {
+                errors.push(spec_err(parsed, &format!("{field_path}/references"), message));
             }
         }
     }

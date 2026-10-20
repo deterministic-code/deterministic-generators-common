@@ -603,8 +603,27 @@ static class TypeModelSemantics
     static string FieldTypeBase(string raw) =>
         raw.EndsWith("[]", StringComparison.Ordinal) || raw.EndsWith("{}", StringComparison.Ordinal) ? raw[..^2] : raw;
 
-    static bool ViewOnlyDictionary(TypeInfo info) =>
-        info.Tags.Contains("view_type") && !info.Tags.Contains("datasource_type");
+    static string? DottedRef(object? raw) => raw as string;
+
+    static (string Column, string? Error) ResolveRoleColumn(
+        TypeInfo dict,
+        string role,
+        string tableName,
+        Dictionary<string, TypeInfo> types)
+    {
+        var known = FieldNamesOf(tableName, types);
+        var reference = DottedRef(dict.FieldReferences.GetValueOrDefault(role));
+        if (reference is not null)
+        {
+            var split = SplitRemove(reference);
+            if (split.Source != tableName || !known.Contains(split.Name))
+                return ("", $"dictionary {role} must reference a column on {tableName}");
+            return (split.Name, null);
+        }
+        return known.Contains(role)
+            ? (role, null)
+            : ("", $"{tableName} must include a {role} column");
+    }
 
     static List<SpecValidationError> CheckDictionary(ParsedYaml parsed, Dictionary<string, TypeInfo> types)
     {
@@ -616,20 +635,12 @@ static class TypeModelSemantics
                 errors.Add(YamlData.Err(parsed, $"{info.Path}/fields", $"dictionary type {name} must include a key field"));
             if (!info.Fields.ContainsKey("value"))
                 errors.Add(YamlData.Err(parsed, $"{info.Path}/fields", $"dictionary type {name} must include a value field"));
-            var isDatasource = info.Tags.Contains("datasource_type");
-            var isView = info.Tags.Contains("view_type");
-            if (isDatasource && isView)
-                errors.Add(YamlData.Err(parsed, info.Path, $"dictionary type {name} must not be tagged both datasource_type and view_type"));
-            var ownerCount = info.FieldReferences.Values.Count(reference => IsOwnerIdentityRef(reference, name, types));
-            if (ViewOnlyDictionary(info))
-            {
-                if (ownerCount > 0)
-                    errors.Add(YamlData.Err(parsed, info.Path, $"view-only dictionary type {name} must not reference an owner identity"));
-            }
-            else if (ownerCount == 0)
-            {
-                errors.Add(YamlData.Err(parsed, info.Path, $"dictionary type {name} must have one field that references the owner identity"));
-            }
+            if (info.Tags.Contains("datasource_type"))
+                errors.Add(YamlData.Err(parsed, info.Path, $"dictionary type {name} must not be tagged datasource_type"));
+            if (!info.Tags.Contains("view_type"))
+                errors.Add(YamlData.Err(parsed, info.Path, $"dictionary type {name} must be tagged view_type"));
+            if (info.FieldReferences.Values.Any(reference => IsOwnerIdentityRef(reference, name, types)))
+                errors.Add(YamlData.Err(parsed, info.Path, $"dictionary type {name} must not reference an owner identity"));
             if (info.FieldTypes.TryGetValue("value", out var valueType))
             {
                 var baseName = FieldTypeBase(valueType);
@@ -655,10 +666,43 @@ static class TypeModelSemantics
                     errors.Add(YamlData.Err(parsed, $"{fieldPath}/type", $"{typeName}.{fieldName} type {rawType} must name a dictionary type"));
                     continue;
                 }
-                var expected = $"{dictName}.key";
-                info.FieldReferences.TryGetValue(fieldName, out var reference);
-                if (reference is not string text || text != expected)
-                    errors.Add(YamlData.Err(parsed, $"{fieldPath}/references", $"{typeName}.{fieldName} must reference {expected}"));
+                var text = DottedRef(info.FieldReferences.GetValueOrDefault(fieldName));
+                var split = text is null ? (Source: (string?)null, Name: "") : SplitRemove(text);
+                TypeInfo? table = split.Source is null ? null : types.GetValueOrDefault(split.Source);
+                var ownerRef = table is null ? null : table.FieldReferences.GetValueOrDefault(split.Name);
+                if (
+                    split.Source is null
+                    || table is null
+                    || !table.Tags.Contains("datasource_type")
+                    || ownerRef is null
+                    || !IsOwnerIdentityRef(ownerRef, split.Source, types)
+                )
+                {
+                    errors.Add(YamlData.Err(parsed, $"{fieldPath}/references", $"{typeName}.{fieldName} must reference a datasource_type owner identity column"));
+                    continue;
+                }
+                var key = ResolveRoleColumn(dict, "key", split.Source, types);
+                if (key.Error is not null)
+                    errors.Add(YamlData.Err(parsed, $"{fieldPath}/references", key.Error));
+                dict.FieldTypes.TryGetValue("value", out var valueType);
+                var valueBase = valueType is null ? null : FieldTypeBase(valueType);
+                var nested = valueBase is not null && !Primitives.Contains(valueBase) ? types.GetValueOrDefault(valueBase) : null;
+                if (nested is null)
+                {
+                    var value = ResolveRoleColumn(dict, "value", split.Source, types);
+                    if (value.Error is not null)
+                        errors.Add(YamlData.Err(parsed, $"{fieldPath}/references", value.Error));
+                    continue;
+                }
+                foreach (var role in nested.Fields.Keys)
+                {
+                    nested.FieldTypes.TryGetValue(role, out var raw);
+                    if (raw is not null && (raw.EndsWith("[]", StringComparison.Ordinal) || raw.EndsWith("{}", StringComparison.Ordinal)))
+                        continue;
+                    var column = ResolveRoleColumn(nested, role, split.Source, types);
+                    if (column.Error is not null)
+                        errors.Add(YamlData.Err(parsed, $"{fieldPath}/references", column.Error));
+                }
             }
         }
         return errors;

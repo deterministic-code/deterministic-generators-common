@@ -747,9 +747,8 @@ public class CoverageTests
         Assert.Contains("reserved type name", typeErrors);
         Assert.Contains("unknown inherit", typeErrors);
         Assert.Contains("must include a value field", typeErrors);
-        Assert.Contains("both datasource_type and view_type", typeErrors);
+        Assert.Contains("must not be tagged datasource_type", typeErrors);
         Assert.Contains("must not reference an owner identity", typeErrors);
-        Assert.Contains("must have one field that references the owner identity", typeErrors);
         Assert.Contains("must name a dictionary type", typeErrors);
         Assert.Contains("scale", typeErrors);
         Assert.Contains("at most one field", typeErrors);
@@ -776,6 +775,124 @@ public class CoverageTests
                   remove_fields: [email]
             """);
         Assert.True(TypeModelSemantics.Check(good).Valid);
+
+        var roles = Doc("""
+            types:
+              - phone:
+                  tags: [datasource_type]
+                  inherits: set
+              - phone_attribute:
+                  tags: [datasource_type]
+                  inherits: set
+                  fields:
+                    - phone_id:
+                        references: phone.id
+                    - attribute_name: {type: string}
+                    - attribute_value: {type: string}
+                    - locale: {type: string}
+                    - timezone: {type: string}
+              - locale_preferences:
+                  tags: [view_type]
+                  fields:
+                    - locale: {type: string}
+                    - timezone: {type: string}
+                    - region: {type: string}
+                    - extras:
+                        type: phone[]
+                    - flags:
+                        type: attrs{}
+                        references: phone_attribute.phone_id
+                    - unlabeled: {}
+              - attrs:
+                  tags: [view_type]
+                  inherits: dictionary
+                  fields:
+                    - key:
+                        type: string
+                        references: phone_attribute.attribute_name
+                    - value:
+                        type: string
+                        references: phone_attribute.attribute_value
+              - prefs_row:
+                  tags: [datasource_type]
+                  inherits: set
+                  fields:
+                    - phone_id:
+                        references: phone.id
+                    - key: {type: string}
+                    - locale: {type: string}
+                    - timezone: {type: string}
+              - prefs:
+                  tags: [view_type]
+                  inherits: dictionary
+                  fields:
+                    - key: {type: string}
+                    - value: {type: locale_preferences}
+              - ghost_map:
+                  tags: [view_type]
+                  inherits: dictionary
+                  fields:
+                    - key: {type: string}
+                    - value: {type: missing_shape}
+              - bare_map:
+                  tags: [view_type]
+                  inherits: dictionary
+                  fields:
+                    - key: {type: string}
+                    - value: {}
+              - phone_view:
+                  tags: [view_type]
+                  inherits: phone
+                  fields:
+                    - attributes:
+                        type: attrs{}
+                        references: phone_attribute.phone_id
+                    - prefs:
+                        type: prefs{}
+                        references: prefs_row.phone_id
+                    - missing_value:
+                        type: ghost_map{}
+                        references: prefs_row.phone_id
+                    - bare:
+                        type: bare_map{}
+                        references: prefs_row.phone_id
+            """);
+        var roleResult = TypeModelSemantics.Check(roles);
+        var roleOk = string.Join("\n", roleResult.Errors.Select(error => error.Message));
+        Assert.Contains("must include a region column", roleOk);
+        Assert.Contains("must include a value column", roleOk);
+
+        var roleErrors = Doc("""
+            types:
+              - phone:
+                  tags: [datasource_type]
+                  inherits: set
+              - phone_attribute:
+                  tags: [datasource_type]
+                  inherits: set
+                  fields:
+                    - phone_id:
+                        references: phone.id
+                    - other: {type: string}
+              - attrs:
+                  tags: [view_type]
+                  inherits: dictionary
+                  fields:
+                    - key:
+                        type: string
+                        references: phone.other
+                    - value: {type: string}
+              - phone_view:
+                  tags: [view_type]
+                  inherits: phone
+                  fields:
+                    - attributes:
+                        type: attrs{}
+                        references: phone_attribute.phone_id
+            """);
+        var roleMessages = string.Join("\n", TypeModelSemantics.Check(roleErrors).Errors.Select(error => error.Message));
+        Assert.Contains("must reference a column on phone_attribute", roleMessages);
+        Assert.Contains("must include a value column", roleMessages);
 
         var cycle = Doc("""
             types:

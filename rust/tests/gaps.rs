@@ -199,7 +199,7 @@ fn semantic_documents_reject_the_same_shapes() {
     let dup = types.validate("version: 1.0.0\ntypes:\n  - user:\n      fields:\n        - email:\n            type: string\n  - user:\n      fields: []\n");
     assert!(dup.errors.iter().any(|e| e.message.contains("duplicate type")));
     let dictionary = types.validate("version: 1.0.0\ntypes:\n  - settings:\n      inherits: dictionary\n      tags: [datasource_type]\n      fields:\n        - key:\n            type: string\n        - value:\n            type: string\n");
-    assert!(dictionary.errors.iter().any(|e| e.message.contains("owner identity")));
+    assert!(dictionary.errors.iter().any(|e| e.message.contains("must not be tagged datasource_type")));
     let reserved = types.validate("version: 1.0.0\ntypes:\n  - set:\n      fields:\n        - name:\n            type: string\n");
     assert!(reserved.errors.iter().any(|e| e.message.contains("must NOT be valid")));
     let decimal = types.validate("version: 1.0.0\ntypes:\n  - money:\n      fields:\n        - amount:\n            type: decimal\n            size: [4, 6]\n");

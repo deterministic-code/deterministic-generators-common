@@ -152,10 +152,44 @@ fn type_model_rejects_the_same_shapes_as_typescript() {
 "#,
     );
     assert!(has(&dictionary, "must include a value field"));
-    assert!(has(&dictionary, "both datasource_type and view_type"));
+    assert!(has(&dictionary, "must not be tagged datasource_type"));
     assert!(has(&dictionary, "must not reference an owner identity"));
     assert!(has(&dictionary, "value must not be a datasource_type"));
     assert!(has(&dictionary, "must name a dictionary type") || has(&dictionary, "must reference"));
+
+    let roles = type_messages(
+        r#"types:
+  - phone:
+      tags: [datasource_type]
+      inherits: set
+  - phone_attribute:
+      tags: [datasource_type]
+      inherits: set
+      fields:
+        - phone_id:
+            references: phone.id
+        - other:
+            type: string
+  - attrs:
+      tags: [view_type]
+      inherits: dictionary
+      fields:
+        - key:
+            type: string
+            references: phone.other
+        - value:
+            type: string
+  - phone_view:
+      tags: [view_type]
+      inherits: phone
+      fields:
+        - attributes:
+            type: attrs{}
+            references: phone_attribute.phone_id
+"#,
+    );
+    assert!(has(&roles, "must reference a column on phone_attribute"));
+    assert!(has(&roles, "must include a value column"));
 
     let refs = type_messages(
         r#"types:
