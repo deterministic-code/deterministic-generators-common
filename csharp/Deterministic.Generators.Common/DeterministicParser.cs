@@ -187,6 +187,8 @@ public sealed class DeterministicParser
                 IsUnique = field.Node.Has("is_unique") ? field.Node.Bool("is_unique") : null,
                 Mapping = string.IsNullOrEmpty(field.Node.Str("mapping")) ? null : field.Node.Str("mapping"),
                 IsFixedId = field.Node.Has("is_fixed_id") ? field.Node.Bool("is_fixed_id") : null,
+                IncludeInCreate = field.Node.Has("include_in_create") ? field.Node.Bool("include_in_create") : null,
+                IncludeInUpdate = field.Node.Has("include_in_update") ? field.Node.Bool("include_in_update") : null,
                 IsOptimisticConcurrency = field.Node.Has("is_optimistic_concurrency")
                     ? field.Node.Bool("is_optimistic_concurrency") : null,
                 UseNativeRowVersion = field.Node.Has("use_native_row_version")
@@ -205,7 +207,7 @@ public sealed class DeterministicParser
         }).ToList();
 
         var filter = TypesFilter(root);
-        if (filter is null) return tables;
+        if (filter is null) return MergeWriteInclusion(tables, types, tables);
         var selected = types.Where(type => filter(new FilterCandidate
         {
             Name = type.Name,
@@ -221,7 +223,101 @@ public sealed class DeterministicParser
                 Indexes = [],
                 UniqueIndexFields = [],
             });
-        return tables.Where(table => selected.Contains(table.Name)).Concat(extras).ToList();
+        return MergeWriteInclusion(tables.Where(table => selected.Contains(table.Name)).Concat(extras).ToList(), types, tables);
+    }
+
+    private static bool? FirstAuthoredInclusion(
+        IEnumerable<string> walk,
+        IReadOnlyDictionary<string, Dictionary<string, DatasourceFieldOverlay>> overlays,
+        string field,
+        Func<DatasourceFieldOverlay, bool?> key)
+    {
+        foreach (var typeName in walk)
+        {
+            if (!overlays.TryGetValue(typeName, out var fields)) continue;
+            if (!fields.TryGetValue(field, out var overlay)) continue;
+            var value = key(overlay);
+            if (value is not null) return value;
+        }
+        return null;
+    }
+
+    private static DatasourceFieldOverlay WithInclusion(
+        DatasourceFieldOverlay overlay,
+        bool? includeInCreate,
+        bool? includeInUpdate) =>
+        new()
+        {
+            Name = overlay.Name,
+            IsReadonly = overlay.IsReadonly,
+            IsUnique = overlay.IsUnique,
+            Mapping = overlay.Mapping,
+            IsFixedId = overlay.IsFixedId,
+            IncludeInCreate = includeInCreate ?? overlay.IncludeInCreate,
+            IncludeInUpdate = includeInUpdate ?? overlay.IncludeInUpdate,
+            IsOptimisticConcurrency = overlay.IsOptimisticConcurrency,
+            UseNativeRowVersion = overlay.UseNativeRowVersion,
+        };
+
+    private static List<DatasourceTable> MergeWriteInclusion(
+        List<DatasourceTable> tables,
+        List<TypeModel> types,
+        List<DatasourceTable> authored)
+    {
+        var typeByName = types.ToDictionary(type => type.Name, StringComparer.Ordinal);
+        var overlays = authored.ToDictionary(
+            table => table.Name,
+            table => table.Fields.ToDictionary(field => field.Name, StringComparer.Ordinal),
+            StringComparer.Ordinal);
+        return tables.Select(table =>
+        {
+            var walk = new[] { table.Name }.Concat(InheritsChain(table.Name, typeByName));
+            var names = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            void Add(string name)
+            {
+                if (seen.Add(name)) names.Add(name);
+            }
+            if (typeByName.TryGetValue(table.Name, out var type))
+            {
+                foreach (var field in type.Fields) Add(field.Name);
+            }
+            foreach (var field in table.Fields) Add(field.Name);
+            var fields = table.Fields.Select(field => WithInclusion(field, null, null)).ToList();
+            var byName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
+            foreach (var name in names)
+            {
+                var includeInCreate = FirstAuthoredInclusion(walk, overlays, name, field => field.IncludeInCreate);
+                var includeInUpdate = FirstAuthoredInclusion(walk, overlays, name, field => field.IncludeInUpdate);
+                if (includeInCreate is null && includeInUpdate is null) continue;
+                if (byName.TryGetValue(name, out var existing))
+                {
+                    var stamped = WithInclusion(existing, includeInCreate, includeInUpdate);
+                    fields[fields.IndexOf(existing)] = stamped;
+                    byName[name] = stamped;
+                }
+                else
+                {
+                    var created = new DatasourceFieldOverlay
+                    {
+                        Name = name,
+                        IncludeInCreate = includeInCreate,
+                        IncludeInUpdate = includeInUpdate,
+                    };
+                    fields.Add(created);
+                    byName[name] = created;
+                }
+            }
+            return new DatasourceTable
+            {
+                Name = table.Name,
+                Mapping = table.Mapping,
+                Fields = fields,
+                Indexes = table.Indexes,
+                UniqueIndexFields = table.UniqueIndexFields,
+                UseOptimisticConcurrency = table.UseOptimisticConcurrency,
+            };
+        }).ToList();
     }
 
     private static Dictionary<string, IReadOnlyList<SeedRow>> ParseSeeds(string yaml)

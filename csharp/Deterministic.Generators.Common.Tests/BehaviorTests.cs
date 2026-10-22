@@ -248,6 +248,121 @@ public class BehaviorTests
     }
 
     [Fact]
+    public async Task Parse_stamps_write_inclusion_overlays()
+    {
+        var authored = await new DeterministicParser(new MemoryReader(new Dictionary<string, string>
+        {
+            [SpecFiles.TypesYaml] = """
+                types:
+                  - user:
+                      tags: [datasource_type]
+                      fields:
+                        - email:
+                            type: string
+                        - created:
+                            type: datetime
+                """,
+            [SpecFiles.DatasourceYaml] = """
+                includes:
+                  - types:
+                      filter: tag == "datasource_type"
+                types:
+                  - user:
+                      fields:
+                        - created:
+                            include_in_create: false
+                """,
+        })).Parse(new Dictionary<string, string>());
+        var created = authored.Datasource.Single(table => table.Name == "user").Fields.Single(field => field.Name == "created");
+        Assert.False(created.IncludeInCreate);
+        Assert.Null(created.IncludeInUpdate);
+
+        var inherited = await new DeterministicParser(new MemoryReader(new Dictionary<string, string>
+        {
+            [SpecFiles.TypesYaml] = """
+                types:
+                  - base:
+                      fields:
+                        - created:
+                            type: datetime
+                        - name:
+                            type: string
+                  - item:
+                      tags: [datasource_type]
+                      inherits: base
+                      fields: []
+                """,
+            [SpecFiles.DatasourceYaml] = """
+                includes:
+                  - types:
+                      filter: tag == "datasource_type"
+                types:
+                  - base:
+                      fields:
+                        - created:
+                            include_in_create: false
+                            include_in_update: false
+                """,
+        })).Parse(new Dictionary<string, string>());
+        Assert.Equal(["item"], inherited.Datasource.Select(table => table.Name));
+        var inheritedCreated = inherited.Datasource[0].Fields.Single(field => field.Name == "created");
+        Assert.False(inheritedCreated.IncludeInCreate);
+        Assert.False(inheritedCreated.IncludeInUpdate);
+
+        var childWins = await new DeterministicParser(new MemoryReader(new Dictionary<string, string>
+        {
+            [SpecFiles.TypesYaml] = """
+                types:
+                  - base:
+                      fields:
+                        - key:
+                            type: string
+                  - item:
+                      tags: [datasource_type]
+                      inherits: base
+                      fields: []
+                """,
+            [SpecFiles.DatasourceYaml] = """
+                includes:
+                  - types:
+                      filter: tag == "datasource_type"
+                types:
+                  - base:
+                      fields:
+                        - key:
+                            include_in_create: false
+                            include_in_update: false
+                            is_fixed_id: true
+                  - item:
+                      fields:
+                        - key:
+                            include_in_create: true
+                """,
+        })).Parse(new Dictionary<string, string>());
+        var key = childWins.Datasource.Single(table => table.Name == "item").Fields.Single(field => field.Name == "key");
+        Assert.True(key.IncludeInCreate);
+        Assert.False(key.IncludeInUpdate);
+        Assert.Null(key.IsFixedId);
+
+        var typesOnly = await new DeterministicParser(new MemoryReader(new Dictionary<string, string>
+        {
+            [SpecFiles.TypesYaml] = """
+                types:
+                  - user:
+                      tags: [datasource_type]
+                      fields:
+                        - created:
+                            type: datetime
+                            include_in_create: false
+                            include_in_update: false
+                """,
+        })).Parse(new Dictionary<string, string>());
+        var typeField = typesOnly.Types.Single(type => type.Name == "user").Fields.Single(field => field.Name == "created");
+        Assert.Null(typeField.GetType().GetProperty("IncludeInCreate"));
+        Assert.Null(typeField.GetType().GetProperty("IncludeInUpdate"));
+    }
+
+    [Fact]
     public void Expand_reports_cycles_and_dictionary_owners()
     {
         var types = new List<TypeModel>

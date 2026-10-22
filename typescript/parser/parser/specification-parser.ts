@@ -96,6 +96,76 @@ export const inheritsChain = (
   return chain;
 };
 
+const firstAuthoredInclusion = (
+  walk: string[],
+  overlays: Map<string, Map<string, DatasourceFieldOverlay>>,
+  field: string,
+  key: "includeInCreate" | "includeInUpdate",
+): boolean | undefined => {
+  for (const typeName of walk) {
+    const value = overlays.get(typeName)?.get(field)?.[key];
+    if (value !== undefined) return value;
+  }
+  return undefined;
+};
+
+const mergeWriteInclusion = (
+  tables: DatasourceTable[],
+  types: Type[],
+  authored: DatasourceTable[],
+): DatasourceTable[] => {
+  const typeByName = new Map(types.map((type) => [type.name, type]));
+  const overlays = new Map(
+    authored.map((table) => [
+      table.name,
+      new Map(table.fields.map((field) => [field.name, field])),
+    ]),
+  );
+  return tables.map((table) => {
+    const walk = [table.name, ...inheritsChain(table.name, typeByName)];
+    const names: string[] = [];
+    const seen = new Set<string>();
+    const add = (name: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      names.push(name);
+    };
+    for (const field of typeByName.get(table.name)?.fields ?? []) add(field.name);
+    for (const field of table.fields) add(field.name);
+    const fields = table.fields.map((field) => ({ ...field }));
+    const byName = new Map(fields.map((field) => [field.name, field]));
+    for (const name of names) {
+      const includeInCreate = firstAuthoredInclusion(
+        walk,
+        overlays,
+        name,
+        "includeInCreate",
+      );
+      const includeInUpdate = firstAuthoredInclusion(
+        walk,
+        overlays,
+        name,
+        "includeInUpdate",
+      );
+      if (includeInCreate === undefined && includeInUpdate === undefined) continue;
+      const existing = byName.get(name);
+      if (existing) {
+        if (includeInCreate !== undefined) existing.includeInCreate = includeInCreate;
+        if (includeInUpdate !== undefined) existing.includeInUpdate = includeInUpdate;
+      } else {
+        const created: DatasourceFieldOverlay = {
+          name,
+          ...(includeInCreate !== undefined ? { includeInCreate } : {}),
+          ...(includeInUpdate !== undefined ? { includeInUpdate } : {}),
+        };
+        fields.push(created);
+        byName.set(name, created);
+      }
+    }
+    return { ...table, fields };
+  });
+};
+
 const parseSeedKey = (rowKey: string): number => {
   const m = /^id(\d+)$/.exec(rowKey);
   if (!m) {
@@ -338,6 +408,12 @@ class Parser {
           ...(fnode.has("is_fixed_id")
             ? { isFixedId: fnode.bool("is_fixed_id") }
             : {}),
+          ...(fnode.has("include_in_create")
+            ? { includeInCreate: fnode.bool("include_in_create") }
+            : {}),
+          ...(fnode.has("include_in_update")
+            ? { includeInUpdate: fnode.bool("include_in_update") }
+            : {}),
           ...(fnode.has("is_optimistic_concurrency")
             ? {
                 isOptimisticConcurrency: fnode.bool(
@@ -366,7 +442,7 @@ class Parser {
     });
 
     const filter = this.#typesFilter(root);
-    if (!filter) return tables;
+    if (!filter) return mergeWriteInclusion(tables, types, tables);
     const selected = new Set(
       types.filter((t) => filter(t)).map((t) => t.name),
     );
@@ -381,7 +457,11 @@ class Parser {
           uniqueIndexFields: [],
         }),
       );
-    return [...tables.filter((t) => selected.has(t.name)), ...extras];
+    return mergeWriteInclusion(
+      [...tables.filter((t) => selected.has(t.name)), ...extras],
+      types,
+      tables,
+    );
   }
 
   #parseDatasourceSeeds(yaml: string): Map<string, SeedRow[]> {

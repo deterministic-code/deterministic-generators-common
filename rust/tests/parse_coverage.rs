@@ -104,6 +104,8 @@ fn empty_documents_seeds_and_identity_lookups() {
             is_unique: None,
             mapping: None,
             is_fixed_id: Some(true),
+            include_in_create: None,
+            include_in_update: None,
             is_optimistic_concurrency: None,
             use_native_row_version: None,
         }],

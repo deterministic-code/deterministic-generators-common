@@ -101,6 +101,8 @@ pub struct DatasourceFieldOverlay {
     pub is_unique: Option<bool>,
     pub mapping: Option<String>,
     pub is_fixed_id: Option<bool>,
+    pub include_in_create: Option<bool>,
+    pub include_in_update: Option<bool>,
     pub is_optimistic_concurrency: Option<bool>,
     pub use_native_row_version: Option<bool>,
 }
