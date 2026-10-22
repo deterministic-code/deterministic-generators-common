@@ -46,6 +46,8 @@ export type DatasourceFieldOverlay = {
   isUnique?: boolean;
   mapping?: string;
   isFixedId?: boolean;
+  includeInCreate?: boolean;
+  includeInUpdate?: boolean;
   isOptimisticConcurrency?: boolean;
   useNativeRowVersion?: boolean;
 };

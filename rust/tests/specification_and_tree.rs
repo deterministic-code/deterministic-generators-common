@@ -84,6 +84,8 @@ fn table(name: &str, uniques: &[&str], indexes: &[&str]) -> DatasourceTable {
                 is_unique: Some(true),
                 mapping: None,
                 is_fixed_id: None,
+                include_in_create: None,
+                include_in_update: None,
                 is_optimistic_concurrency: None,
                 use_native_row_version: None,
             })

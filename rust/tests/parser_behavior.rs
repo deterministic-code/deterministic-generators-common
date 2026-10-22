@@ -653,6 +653,159 @@ types: []
 }
 
 #[test]
+fn parse_datasource_write_inclusion_overlays() {
+    let authored = parse(&[
+        (
+            "types.yaml",
+            r#"types:
+  - user:
+      tags: [datasource_type]
+      fields:
+        - email:
+            type: string
+        - created:
+            type: datetime
+"#,
+        ),
+        (
+            "datasource.yaml",
+            r#"includes:
+  - types:
+      filter: tag == "datasource_type"
+types:
+  - user:
+      fields:
+        - created:
+            include_in_create: false
+"#,
+        ),
+    ]);
+    let created = authored
+        .datasource
+        .iter()
+        .find(|table| table.name == "user")
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "created")
+        .unwrap();
+    assert_eq!(created.include_in_create, Some(false));
+    assert_eq!(created.include_in_update, None);
+
+    let inherited = parse(&[
+        (
+            "types.yaml",
+            r#"types:
+  - base:
+      fields:
+        - created:
+            type: datetime
+        - name:
+            type: string
+  - item:
+      tags: [datasource_type]
+      inherits: base
+      fields: []
+"#,
+        ),
+        (
+            "datasource.yaml",
+            r#"includes:
+  - types:
+      filter: tag == "datasource_type"
+types:
+  - base:
+      fields:
+        - created:
+            include_in_create: false
+            include_in_update: false
+"#,
+        ),
+    ]);
+    assert_eq!(
+        inherited.datasource.iter().map(|table| table.name.as_str()).collect::<Vec<_>>(),
+        vec!["item"]
+    );
+    let created = inherited.datasource[0]
+        .fields
+        .iter()
+        .find(|field| field.name == "created")
+        .unwrap();
+    assert_eq!(created.include_in_create, Some(false));
+    assert_eq!(created.include_in_update, Some(false));
+
+    let child_wins = parse(&[
+        (
+            "types.yaml",
+            r#"types:
+  - base:
+      fields:
+        - key:
+            type: string
+  - item:
+      tags: [datasource_type]
+      inherits: base
+      fields: []
+"#,
+        ),
+        (
+            "datasource.yaml",
+            r#"includes:
+  - types:
+      filter: tag == "datasource_type"
+types:
+  - base:
+      fields:
+        - key:
+            include_in_create: false
+            include_in_update: false
+            is_fixed_id: true
+  - item:
+      fields:
+        - key:
+            include_in_create: true
+"#,
+        ),
+    ]);
+    let key = child_wins
+        .datasource
+        .iter()
+        .find(|table| table.name == "item")
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "key")
+        .unwrap();
+    assert_eq!(key.include_in_create, Some(true));
+    assert_eq!(key.include_in_update, Some(false));
+    assert_eq!(key.is_fixed_id, None);
+
+    let types_only = parse(&[(
+        "types.yaml",
+        r#"types:
+  - user:
+      tags: [datasource_type]
+      fields:
+        - created:
+            type: datetime
+            include_in_create: false
+            include_in_update: false
+"#,
+    )]);
+    let created = types_only
+        .types
+        .iter()
+        .find(|ty| ty.name == "user")
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "created")
+        .unwrap();
+    assert_eq!(created.name, "created");
+    assert_eq!(created.type_name, "datetime");
+}
+
+#[test]
 fn parse_services_filters_and_custom_methods() {
     let spec = parse(&[
         (

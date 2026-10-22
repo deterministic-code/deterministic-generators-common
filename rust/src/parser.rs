@@ -191,6 +191,14 @@ fn parse_datasource(yaml: &str, types: &[Type]) -> Result<Vec<DatasourceTable>, 
                     is_unique: field.node.has("is_unique").then(|| field.node.bool("is_unique")),
                     mapping: field.node.str("mapping").filter(|value| !value.is_empty()),
                     is_fixed_id: field.node.has("is_fixed_id").then(|| field.node.bool("is_fixed_id")),
+                    include_in_create: field
+                        .node
+                        .has("include_in_create")
+                        .then(|| field.node.bool("include_in_create")),
+                    include_in_update: field
+                        .node
+                        .has("include_in_update")
+                        .then(|| field.node.bool("include_in_update")),
                     is_optimistic_concurrency: field
                         .node
                         .has("is_optimistic_concurrency")
@@ -215,7 +223,7 @@ fn parse_datasource(yaml: &str, types: &[Type]) -> Result<Vec<DatasourceTable>, 
         })
         .collect();
     let Some(filter) = types_filter(&root)? else {
-        return Ok(tables);
+        return Ok(merge_write_inclusion(tables.clone(), types, &tables));
     };
     let selected: HashSet<String> = types
         .iter()
@@ -236,11 +244,106 @@ fn parse_datasource(yaml: &str, types: &[Type]) -> Result<Vec<DatasourceTable>, 
         })
         .collect::<Vec<_>>();
     let mut out = tables
-        .into_iter()
+        .iter()
         .filter(|table| selected.contains(&table.name))
+        .cloned()
         .collect::<Vec<_>>();
     out.extend(extras);
-    Ok(out)
+    Ok(merge_write_inclusion(out, types, &tables))
+}
+
+fn first_authored_inclusion<F>(
+    walk: &[String],
+    overlays: &HashMap<String, HashMap<String, DatasourceFieldOverlay>>,
+    field: &str,
+    key: F,
+) -> Option<bool>
+where
+    F: Fn(&DatasourceFieldOverlay) -> Option<bool> + Copy,
+{
+    walk.iter().find_map(|type_name| {
+        overlays
+            .get(type_name)
+            .and_then(|fields| fields.get(field))
+            .and_then(key)
+    })
+}
+
+fn merge_write_inclusion(
+    tables: Vec<DatasourceTable>,
+    types: &[Type],
+    authored: &[DatasourceTable],
+) -> Vec<DatasourceTable> {
+    let type_by_name: IndexMap<String, Type> = types
+        .iter()
+        .map(|type_def| (type_def.name.clone(), type_def.clone()))
+        .collect();
+    let overlays: HashMap<String, HashMap<String, DatasourceFieldOverlay>> = authored
+        .iter()
+        .map(|table| {
+            (
+                table.name.clone(),
+                table
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.clone()))
+                    .collect(),
+            )
+        })
+        .collect();
+    tables
+        .into_iter()
+        .map(|table| {
+            let mut walk = vec![table.name.clone()];
+            walk.extend(inherits_chain(&table.name, &type_by_name));
+            let mut names = Vec::new();
+            let mut seen = HashSet::new();
+            let mut add = |name: &str| {
+                if seen.insert(name.to_string()) {
+                    names.push(name.to_string());
+                }
+            };
+            if let Some(type_def) = type_by_name.get(&table.name) {
+                for field in &type_def.fields {
+                    add(&field.name);
+                }
+            }
+            for field in &table.fields {
+                add(&field.name);
+            }
+            let mut fields = table.fields.clone();
+            for name in names {
+                let include_in_create =
+                    first_authored_inclusion(&walk, &overlays, &name, |field| field.include_in_create);
+                let include_in_update =
+                    first_authored_inclusion(&walk, &overlays, &name, |field| field.include_in_update);
+                if include_in_create.is_none() && include_in_update.is_none() {
+                    continue;
+                }
+                if let Some(existing) = fields.iter_mut().find(|field| field.name == name) {
+                    if include_in_create.is_some() {
+                        existing.include_in_create = include_in_create;
+                    }
+                    if include_in_update.is_some() {
+                        existing.include_in_update = include_in_update;
+                    }
+                } else {
+                    fields.push(DatasourceFieldOverlay {
+                        name,
+                        is_readonly: None,
+                        is_unique: None,
+                        mapping: None,
+                        is_fixed_id: None,
+                        include_in_create,
+                        include_in_update,
+                        is_optimistic_concurrency: None,
+                        use_native_row_version: None,
+                    });
+                }
+            }
+            DatasourceTable { fields, ..table }
+        })
+        .collect()
 }
 
 fn parse_datasource_seeds(yaml: &str) -> Result<IndexMap<String, Vec<SeedRow>>, Error> {
