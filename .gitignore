@@ -9,5 +9,6 @@ typescript/validator/validators/engines.js
 rust/target/
 csharp/**/bin/
 csharp/**/obj/
+csharp/artifacts/
 csharp/**/coverage.cobertura.xml
 .DS_Store

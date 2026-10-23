@@ -12,7 +12,12 @@ deterministic_generators_common = { git = "https://github.com/deterministic-code
 ```
 
 ```xml
-<ProjectReference Include="path/to/deterministic-generators-common/csharp/Deterministic.Generators.Common/Deterministic.Generators.Common.csproj" />
+<PackageReference Include="Deterministic.Generators.Common" Version="0.1.0" />
+```
+
+```text
+npm run publish:nuget                 # pack and smoke-test
+npm run publish:nuget -- --publish    # push to nuget.org (NUGET_API_KEY)
 ```
 
 ```text
