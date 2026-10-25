@@ -15,13 +15,22 @@ deterministic_generators_common = { git = "https://github.com/deterministic-code
 <ProjectReference Include="path/to/deterministic-generators-common/csharp/Deterministic.Generators.Common/Deterministic.Generators.Common.csproj" />
 ```
 
+```xml
+<PackageReference Include="Deterministic.Generators.Common" Version="0.1.1" />
+```
+
 TypeScript packs pin `#main`:
 
 ```json
 "@deterministic-code/deterministic-generators-common": "github:deterministic-code/deterministic-generators-common#main"
 ```
 
-C# first-party consumers use that `ProjectReference`, not a NuGet `PackageReference`.
+C# first-party consumers use the `ProjectReference`. Out-of-repo C# can take the NuGet package.
+
+```text
+npm run publish:nuget                 # pack and smoke-test
+npm run publish:nuget -- --publish    # push to nuget.org (NUGET_API_KEY)
+```
 
 ```text
 npm test                         # TypeScript parser + validator (100% coverage)

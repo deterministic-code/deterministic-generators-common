@@ -30,7 +30,8 @@
     "test": "npm test --prefix typescript",
     "build": "esbuild typescript/validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/dist/index.js && esbuild typescript/validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/validators/engines.js && esbuild typescript/parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/parser/dist/specification-parser.js",
     "test:rust": "sh rust/coverage.sh",
-    "test:csharp": "dotnet test csharp/Deterministic.Generators.Common.slnx --settings csharp/coverlet.runsettings"
+    "test:csharp": "dotnet test csharp/Deterministic.Generators.Common.slnx --settings csharp/coverlet.runsettings",
+    "publish:nuget": "node scripts/publish-nuget.mjs"
   },
   "dependencies": {
     "ajv": "^8.18.0",

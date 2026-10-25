@@ -5,7 +5,16 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Deterministic.Generators.Common</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
+    <Version>0.1.1</Version>
+    <Authors>deterministic-code</Authors>
+    <Company>deterministic-code</Company>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/deterministic-code/deterministic-generators-common</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/deterministic-code/deterministic-generators-common</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Description>Parser and validators for the deterministic-specifications contract.</Description>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../artifacts/</PackageOutputPath>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
