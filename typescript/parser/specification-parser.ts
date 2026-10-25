@@ -1,5 +1,6 @@
 export type { IDeterministic } from "./deterministic.ts";
 export { DeterministicParser } from "./parser/specification-parser.ts";
+export { VersionSnapshot } from "./version-snapshot.ts";
 export type {
   CustomRouteEntry,
   CustomServiceEntry,

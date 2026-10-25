@@ -8,6 +8,7 @@ pub mod reader;
 pub mod settings;
 pub mod specification;
 pub mod validator;
+pub mod version_snapshot;
 pub mod yaml_node;
 
 pub use compile_filter::{compile_filter, compile_types_filter, FilterCandidate};
@@ -27,4 +28,5 @@ pub use validator::{
     FrontendBindingsValidator, RoutesApiValidator, RoutesValidator, ServicesValidator,
     SpecValidationError, SpecValidationResult, SpecValidator, TypesValidator, ValidateOptions,
 };
+pub use version_snapshot::VersionSnapshot;
 pub use yaml_node::{YamlLiteral, YamlNode, YamlValue};

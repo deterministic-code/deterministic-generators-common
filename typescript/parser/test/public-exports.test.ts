@@ -4,6 +4,6 @@ import * as parser from "../specification-parser.ts";
 
 describe("parser public exports", () => {
   it("exposes only DeterministicParser as a value", () => {
-    assert.deepEqual(Object.keys(parser).sort(), ["DeterministicParser"]);
+    assert.deepEqual(Object.keys(parser).sort(), ["DeterministicParser", "VersionSnapshot"]);
   });
 });
