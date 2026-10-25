@@ -1,8 +1,8 @@
 import { parse } from "yaml";
 
 type YamlLiteral = string | number | boolean | null;
-type YamlMap = { readonly [key: string]: YamlValue };
-type YamlValue = YamlLiteral | YamlValue[] | YamlMap;
+export type YamlMap = { readonly [key: string]: YamlValue };
+export type YamlValue = YamlLiteral | YamlValue[] | YamlMap;
 type FieldDefault = YamlLiteral | YamlValue[] | YamlMap;
 type Named = { name: string; node: YamlNode };
 
