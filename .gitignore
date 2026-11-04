@@ -5,6 +5,7 @@ typescript/parser/node_modules/
 typescript/validator/node_modules/
 typescript/parser/dist/
 typescript/validator/dist/
+typescript/includes/dist/
 typescript/validator/validators/engines.js
 rust/target/
 csharp/**/bin/
