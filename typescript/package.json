@@ -13,6 +13,10 @@
     "./parser": {
       "types": "./parser/specification-parser.ts",
       "import": "./parser/dist/specification-parser.js"
+    },
+    "./includes": {
+      "types": "./includes/index.ts",
+      "import": "./includes/dist/index.js"
     }
   },
   "files": [
@@ -23,15 +27,18 @@
     "validator/validators",
     "parser/dist",
     "parser/*.ts",
-    "parser/parser"
+    "parser/parser",
+    "includes/dist",
+    "includes/*.ts"
   ],
   "scripts": {
     "prepare": "npm run build",
-    "test": "npm test --prefix parser && npm test --prefix validator",
-    "build": "npm run build:validator && npm run build:engines && npm run build:parser",
+    "test": "npm test --prefix parser && npm test --prefix validator && npm test --prefix includes",
+    "build": "npm run build:validator && npm run build:engines && npm run build:parser && npm run build:includes",
     "build:validator": "esbuild validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=validator/dist/index.js",
     "build:engines": "esbuild validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=validator/validators/engines.js",
-    "build:parser": "esbuild parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=parser/dist/specification-parser.js"
+    "build:parser": "esbuild parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=parser/dist/specification-parser.js",
+    "build:includes": "esbuild includes/index.ts --bundle --format=esm --platform=node --packages=external --outfile=includes/dist/index.js"
   },
   "dependencies": {
     "ajv": "^8.18.0",

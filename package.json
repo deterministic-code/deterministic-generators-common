@@ -13,6 +13,10 @@
     "./parser": {
       "types": "./typescript/parser/specification-parser.ts",
       "import": "./typescript/parser/dist/specification-parser.js"
+    },
+    "./includes": {
+      "types": "./typescript/includes/index.ts",
+      "import": "./typescript/includes/dist/index.js"
     }
   },
   "files": [
@@ -23,12 +27,14 @@
     "typescript/validator/validators",
     "typescript/parser/dist",
     "typescript/parser/*.ts",
-    "typescript/parser/parser"
+    "typescript/parser/parser",
+    "typescript/includes/dist",
+    "typescript/includes/*.ts"
   ],
   "scripts": {
     "prepare": "npm run build",
     "test": "npm test --prefix typescript",
-    "build": "esbuild typescript/validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/dist/index.js && esbuild typescript/validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/validators/engines.js && esbuild typescript/parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/parser/dist/specification-parser.js",
+    "build": "esbuild typescript/validator/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/dist/index.js && esbuild typescript/validator/validators/engines.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/validator/validators/engines.js && esbuild typescript/parser/specification-parser.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/parser/dist/specification-parser.js && esbuild typescript/includes/index.ts --bundle --format=esm --platform=node --packages=external --outfile=typescript/includes/dist/index.js",
     "test:rust": "sh rust/coverage.sh",
     "test:csharp": "dotnet test csharp/Deterministic.Generators.Common.slnx --settings csharp/coverlet.runsettings",
     "publish:nuget": "node scripts/publish-nuget.mjs"
