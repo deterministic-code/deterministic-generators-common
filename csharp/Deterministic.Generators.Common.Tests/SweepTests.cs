@@ -213,13 +213,17 @@ public class SweepTests
                 Field("value", "string"),
                 Field("owner_id", "integer", references: new[] { "owner.id" }),
                 Field("list_ref", "integer", references: new List<string> { "owner.id" }),
-                Field("bad", "integer", references: 5),
                 Field("bare", "integer", references: "owner.id"),
             ]),
             Type("holder", "prefs", extract: ["prefs.key", "bare"], mapping: new Dictionary<string, string> { ["key"] = "setting_key", ["prefs.value"] = "setting_value" }, remove: ["bad"]),
             Type("empty_id", "missing_parent"),
         ]);
         Assert.Contains(expanded, type => type.Name == "holder");
+        var bad = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            Type("prefs", fields: [Field("bad", "integer", references: 5)]),
+        ]));
+        Assert.Contains("prefs.bad references  has no type", bad.Message);
         Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
         [
             Type("cycle_a", "cycle_b"),
@@ -244,10 +248,10 @@ public class SweepTests
 types:
   - user:
       tags: [datasource_type]
+      inherits: set
       fields:
         - email:
             type: string
-            is_id: true
   - base:
       fields:
         - user_id:

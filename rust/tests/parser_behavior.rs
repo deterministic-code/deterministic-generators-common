@@ -540,6 +540,14 @@ fn parse_types_inherit_union_mapping_extract_ids_and_contacts() {
     let composite = parse(&[(
         "types.yaml",
         r#"types:
+  - user:
+      tags: [datasource_type]
+      inherits: set
+      fields: []
+  - role:
+      tags: [datasource_type]
+      inherits: set
+      fields: []
   - link:
       tags: [datasource_type, many_to_many]
       fields:
@@ -553,13 +561,14 @@ fn parse_types_inherit_union_mapping_extract_ids_and_contacts() {
             references: [link.left_id, link.right_id]
 "#,
     )]);
-    let pair = composite.types[0].fields.iter().find(|field| field.name == "pair").unwrap();
+    let link = composite.types.iter().find(|ty| ty.name == "link").unwrap();
+    let pair = link.fields.iter().find(|field| field.name == "pair").unwrap();
     assert_eq!(
         pair.references,
         Some(References::Pair("link.left_id".into(), "link.right_id".into()))
     );
     assert_eq!(pair.kind, FieldKind::Primitive);
-    assert!(type_has_tag(&composite.types[0], "many_to_many"));
+    assert!(type_has_tag(link, "many_to_many"));
 }
 
 #[test]

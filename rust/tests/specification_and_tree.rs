@@ -322,7 +322,7 @@ fn dictionary_owner_fk_rules() {
         .to_string()
         .contains("address_base.contact_id type string does not match contact.id type integer"));
 
-    let mut contact_id = fld("contact_id", "");
+    let mut contact_id = fld("contact_id", "reference");
     contact_id.references = Some(References::One("contact_base.id".into()));
     let expanded = expand_types(&[
         inherit(shaped("base", vec![id_field("id", "integer")]), "set"),
@@ -359,6 +359,82 @@ fn dictionary_owner_fk_rules() {
     assert!(err
         .to_string()
         .contains("address_base.ghost_id references ghost.id has no type"));
+
+    let mut missing_field = fld("contact_id", "");
+    missing_field.references = Some(References::One("contact.missing".into()));
+    let err = expand_types(&[
+        shaped("contact", vec![id_field("id", "integer")]),
+        shaped("address_base", vec![missing_field]),
+    ])
+    .unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.contact_id references contact.missing has no type"));
+
+    let mut ghosts = fld("ghosts", "ghost[]");
+    ghosts.references = Some(References::One("ghost.ghost_id".into()));
+    let err = expand_types(&[shaped("address_base", vec![ghosts])]).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.ghosts references ghost.ghost_id has no type"));
+
+    let mut loose = fld("loose", "");
+    loose.references = Some(References::One("nowhere".into()));
+    let err = expand_types(&[shaped("address_base", vec![loose])]).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.loose references nowhere has no type"));
+
+    let mut pk = fld("pk", "");
+    pk.references = Some(References::One("base.id".into()));
+    let mut via_mid = fld("contact_id", "reference");
+    via_mid.references = Some(References::One("mid.pk".into()));
+    let expanded = expand_types(&[
+        shaped("base", vec![id_field("id", "integer")]),
+        shaped("mid", vec![pk]),
+        shaped("address_base", vec![via_mid]),
+    ])
+    .unwrap();
+    assert_eq!(
+        expanded
+            .iter()
+            .find(|type_def| type_def.name == "address_base")
+            .unwrap()
+            .fields
+            .iter()
+            .find(|field| field.name == "contact_id")
+            .unwrap()
+            .type_name,
+        "integer"
+    );
+
+    let mut left = fld("right_id", "");
+    left.references = Some(References::One("right.id".into()));
+    let mut right = fld("id", "");
+    right.references = Some(References::One("left.right_id".into()));
+    let err = expand_types(&[shaped("left", vec![left]), shaped("right", vec![right])]).unwrap_err();
+    assert!(err.to_string().contains("has no type"));
+
+    let mut labels = fld("labels", "labels{}");
+    labels.is_map = true;
+    labels.references = Some(References::One("labels.key".into()));
+    let expanded = expand_types(&[
+        shaped("labels", vec![fld("key", "string")]),
+        shaped("card", vec![labels]),
+    ])
+    .unwrap();
+    assert_eq!(
+        expanded
+            .iter()
+            .find(|type_def| type_def.name == "card")
+            .unwrap()
+            .fields
+            .iter()
+            .find(|field| field.name == "labels")
+            .unwrap()
+            .type_name,
+        "labels{}"
+    );
 }
 
 fn ds(name: &str, refs: &[&str]) -> Type {

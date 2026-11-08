@@ -612,111 +612,86 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
     resolve_reference_types(expanded)
 }
 
-fn ref_text(references: &References) -> String {
+fn ref_values(references: &References) -> Vec<String> {
     match references {
-        References::One(value) => value.clone(),
-        References::Pair(left, right) => format!("{left}, {right}"),
+        References::One(value) => vec![value.clone()],
+        References::Pair(left, right) => vec![left.clone(), right.clone()],
     }
 }
 
-fn scalar_target(references: &References) -> Option<(String, String)> {
-    match references {
-        References::One(value) => {
-            let (table, column) = value.split_once('.').unwrap_or(("", value));
-            Some((table.to_string(), column.to_string()))
-        }
-        References::Pair(_, _) => None,
-    }
+fn missing_parent(type_name: &str, field: &TypeField) -> Error {
+    Error::new(format!(
+        "{}.{} references {} has no type",
+        type_name,
+        field.name,
+        field
+            .references
+            .as_ref()
+            .map(|references| ref_values(references).join(", "))
+            .unwrap_or_default()
+    ))
 }
 
-fn is_scalar_reference(field: &TypeField) -> bool {
-    field.references.is_some() && !field.is_array && !field.is_map
-}
-
-fn copy_column_type(field: &TypeField, parent: &TypeField) -> TypeField {
-    let mut copied = field.clone();
-    copied.type_name = parent.type_name.clone();
-    copied.kind = parent.kind;
-    copied.base = parent.base.clone();
-    if parent.size.is_some() {
-        copied.size = parent.size.clone();
+fn column_type(
+    reference: &str,
+    types: &[Type],
+    type_name: &str,
+    field: &TypeField,
+    seen: &mut HashSet<String>,
+) -> Result<String, Error> {
+    if !seen.insert(reference.to_string()) {
+        return Err(missing_parent(type_name, field));
     }
-    copied
+    let Some((table, name)) = reference.split_once('.') else {
+        return Err(missing_parent(type_name, field));
+    };
+    let found = types
+        .iter()
+        .find(|entry| entry.name == table)
+        .and_then(|entry| entry.fields.iter().find(|entry| entry.name == name));
+    let Some(found) = found else {
+        return Err(missing_parent(type_name, field));
+    };
+    if !found.type_name.is_empty() {
+        return Ok(found.type_name.clone());
+    }
+    match &found.references {
+        Some(References::One(next)) => column_type(next, types, type_name, field, seen),
+        _ => Err(missing_parent(type_name, field)),
+    }
 }
 
 fn resolve_reference_types(mut types: Vec<Type>) -> Result<Vec<Type>, Error> {
-    for _ in 0..types.len() {
-        let mut changed = false;
-        let mut waiting = false;
-        for index in 0..types.len() {
-            for field_index in 0..types[index].fields.len() {
-                if !is_scalar_reference(&types[index].fields[field_index]) {
-                    continue;
-                }
-                let Some(references) = types[index].fields[field_index].references.clone() else {
-                    continue;
-                };
-                let Some((table, column)) = scalar_target(&references) else {
-                    if types[index].fields[field_index].type_name.is_empty() {
-                        return Err(Error::new(format!(
-                            "{}.{} references {} has no type",
-                            types[index].name,
-                            types[index].fields[field_index].name,
-                            ref_text(&references)
-                        )));
-                    }
-                    continue;
-                };
-                let parent = types
-                    .iter()
-                    .find(|item| item.name == table)
-                    .and_then(|item| item.fields.iter().find(|field| field.name == column))
-                    .cloned();
-                let Some(parent) = parent else {
-                    return Err(Error::new(format!(
-                        "{}.{} references {} has no type",
-                        types[index].name,
-                        types[index].fields[field_index].name,
-                        ref_text(&references)
-                    )));
-                };
-                if parent.type_name.is_empty() {
-                    waiting = true;
-                    continue;
-                }
-                let field_type = types[index].fields[field_index].type_name.clone();
-                if field_type.is_empty() {
-                    types[index].fields[field_index] =
-                        copy_column_type(&types[index].fields[field_index], &parent);
-                    changed = true;
-                    continue;
-                }
-                if field_type != parent.type_name {
-                    return Err(Error::new(format!(
-                        "{}.{} type {field_type} does not match {} type {}",
-                        types[index].name,
-                        types[index].fields[field_index].name,
-                        ref_text(&references),
-                        parent.type_name
-                    )));
-                }
-            }
-        }
-        if !changed && !waiting {
-            break;
-        }
-    }
-    for type_def in &types {
-        for field in &type_def.fields {
-            if !is_scalar_reference(field) || !field.type_name.is_empty() {
+    for index in 0..types.len() {
+        for field_index in 0..types[index].fields.len() {
+            let Some(references) = types[index].fields[field_index].references.clone() else {
                 continue;
+            };
+            let type_name = types[index].name.clone();
+            for item in ref_values(&references) {
+                let parent = column_type(
+                    &item,
+                    &types,
+                    &type_name,
+                    &types[index].fields[field_index],
+                    &mut HashSet::new(),
+                )?;
+                let field = &mut types[index].fields[field_index];
+                if field.is_array || field.is_map {
+                    continue;
+                }
+                if field.type_name.is_empty() || field.type_name == "reference" {
+                    let parsed = parse_field_type(&parent);
+                    field.type_name = parent;
+                    field.kind = parsed.kind;
+                    field.base = parsed.base;
+                } else if field.type_name != parent {
+                    return Err(Error::new(format!(
+                        "{type_name}.{} type {} does not match {item} type {parent}",
+                        field.name, field.type_name
+                    )));
+                }
             }
-            return Err(Error::new(format!(
-                "{}.{} references {} has no type",
-                type_def.name,
-                field.name,
-                ref_text(field.references.as_ref().unwrap())
-            )));
         }
     }
     Ok(types)

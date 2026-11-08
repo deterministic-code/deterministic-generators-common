@@ -234,6 +234,14 @@ describe("parse types.yaml", () => {
   it("parses composite references", async () => {
     const det = await parse({
       "types.yaml": `types:
+  - user:
+      tags: [datasource_type]
+      inherits: set
+      fields: []
+  - role:
+      tags: [datasource_type]
+      inherits: set
+      fields: []
   - link:
       tags: [datasource_type, many_to_many]
       fields:
@@ -247,7 +255,7 @@ describe("parse types.yaml", () => {
             references: [link.left_id, link.right_id]
 `,
     });
-    const pair = det.types[0]?.fields.find((f) => f.name === "pair");
+    const pair = det.types.find((t) => t.name === "link")?.fields.find((f) => f.name === "pair");
     assert.deepEqual(pair?.references, ["link.left_id", "link.right_id"]);
   });
 });

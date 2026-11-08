@@ -63,6 +63,11 @@ describe("parser coverage", () => {
   it("parses list and dictionary defaults", async () => {
     const spec = await parse({
       "types.yaml": `types:
+  - labels:
+      tags: [view_type]
+      fields:
+        - key:
+            type: string
   - card:
       tags: [view_type]
       fields:
@@ -78,7 +83,8 @@ describe("parser coverage", () => {
             default_value: null
 `,
     });
-    const [phones, labels, notes] = spec.types[0]?.fields ?? [];
+    const [phones, labels, notes] =
+      spec.types.find((type) => type.name === "card")?.fields ?? [];
     assert.equal(phones?.hasDefault, true);
     assert.deepEqual(phones?.defaultValue, []);
     assert.equal(labels?.hasDefault, true);
@@ -380,6 +386,7 @@ routes: []
           "types.yaml": `types:
   - user:
       tags: [view_type]
+      inherits: set
       fields: []
   - link:
       tags: [many_to_many]
@@ -528,6 +535,7 @@ routes:
             references: [user.id, note.id]
   - note:
       tags: [view_type]
+      inherits: set
       fields:
         - body:
             type: string

@@ -62,12 +62,17 @@ fn empty_documents_seeds_and_identity_lookups() {
 
     let collections = parse(&[(
         "types.yaml",
-        "types:\n  - card:\n      tags: [view_type]\n      fields:\n        - phones:\n            type: phone[]\n        - labels:\n            type: labels{}\n            references: labels.key\n        - notes:\n            type: note[]\n            is_nullable: true\n            default_value: null\n",
+        "types:\n  - labels:\n      tags: [view_type]\n      fields:\n        - key:\n            type: string\n  - card:\n      tags: [view_type]\n      fields:\n        - phones:\n            type: phone[]\n        - labels:\n            type: labels{}\n            references: labels.key\n        - notes:\n            type: note[]\n            is_nullable: true\n            default_value: null\n",
     )])
     .unwrap();
-    assert_eq!(collections.types[0].fields[0].default_value, Some(YamlLiteral::EmptyArray));
-    assert_eq!(collections.types[0].fields[1].default_value, Some(YamlLiteral::EmptyMap));
-    assert_eq!(collections.types[0].fields[2].default_value, Some(YamlLiteral::Null));
+    let card = collections
+        .types
+        .iter()
+        .find(|type_def| type_def.name == "card")
+        .unwrap();
+    assert_eq!(card.fields[0].default_value, Some(YamlLiteral::EmptyArray));
+    assert_eq!(card.fields[1].default_value, Some(YamlLiteral::EmptyMap));
+    assert_eq!(card.fields[2].default_value, Some(YamlLiteral::Null));
     assert!(Option::<SeedValue>::from(YamlLiteral::EmptyArray).is_none());
     assert!(Option::<SeedValue>::from(YamlLiteral::EmptyMap).is_none());
 
@@ -170,7 +175,7 @@ fn shorthand_and_combined_route_errors() {
     .contains("junction \"missing\" not found"));
     assert!(err(&[(
         "types.yaml",
-        "types:\n  - user:\n      tags: [view_type]\n      fields: []\n  - link:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            references: user.id\n            type: integer\n",
+        "types:\n  - user:\n      tags: [view_type]\n      inherits: set\n      fields: []\n  - link:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            references: user.id\n            type: integer\n",
     ), (
         "routes.yaml",
         "combined_routes:\n  - user:\n      combines:\n        - role:\n            via: link\n            target: role\nroutes: []\n",

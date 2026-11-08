@@ -207,7 +207,13 @@ includes:
 
         var expanded = Specification.ExpandTypes(
         [
-            new TypeModel { Name = "plain", Kind = "shaped", Tags = [], Fields = [] },
+            new TypeModel
+            {
+                Name = "plain",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer" }],
+            },
             new TypeModel
             {
                 Name = "dict",
@@ -307,6 +313,139 @@ includes:
             },
         ]));
         Assert.Contains("address_base.ghost_id references ghost.id has no type", missing.Message);
+
+        var missingField = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "contact",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer", IsId = true }],
+            },
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "contact_id", Type = "", Kind = "primitive", Base = "", References = "contact.missing" }],
+            },
+        ]));
+        Assert.Contains("address_base.contact_id references contact.missing has no type", missingField.Message);
+
+        var collection = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "ghosts", Type = "ghost[]", Kind = "type", Base = "ghost", IsArray = true, References = "ghost.ghost_id" }],
+            },
+        ]));
+        Assert.Contains("address_base.ghosts references ghost.ghost_id has no type", collection.Message);
+
+        var nowhere = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "loose", Type = "", Kind = "primitive", Base = "", References = "nowhere" }],
+            },
+        ]));
+        Assert.Contains("address_base.loose references nowhere has no type", nowhere.Message);
+
+        var walked = Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "contact_id", Type = "reference", Kind = "primitive", Base = "reference", References = "mid.pk" }],
+            },
+            new TypeModel
+            {
+                Name = "mid",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "pk", Type = "", Kind = "primitive", Base = "", References = "base.id" }],
+            },
+            new TypeModel
+            {
+                Name = "base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer", IsId = true }],
+            },
+        ]);
+        Assert.Equal("integer", walked.Single(type => type.Name == "address_base").Fields.Single(field => field.Name == "contact_id").Type);
+
+        var emptyPair = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "contact_id", Type = "", Kind = "primitive", Base = "", References = "mid.pk" }],
+            },
+            new TypeModel
+            {
+                Name = "mid",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "pk", Type = "", Kind = "primitive", Base = "", References = new[] { "base.id", "base.id" } }],
+            },
+            new TypeModel
+            {
+                Name = "base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer", IsId = true }],
+            },
+        ]));
+        Assert.Contains("address_base.contact_id references mid.pk has no type", emptyPair.Message);
+
+        var looped = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "left",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "right_id", Type = "", Kind = "primitive", Base = "", References = "right.id" }],
+            },
+            new TypeModel
+            {
+                Name = "right",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "", Kind = "primitive", Base = "", References = "left.right_id" }],
+            },
+        ]));
+        Assert.Contains("has no type", looped.Message);
+
+        var mapped = Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "labels",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "key", Type = "string", Kind = "primitive", Base = "string" }],
+            },
+            new TypeModel
+            {
+                Name = "card",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "labels", Type = "labels{}", Kind = "type", Base = "labels", IsMap = true, References = "labels.key" }],
+            },
+        ]);
+        Assert.Equal("labels{}", mapped.Single(type => type.Name == "card").Fields.Single(field => field.Name == "labels").Type);
     }
 
     [Fact]
@@ -339,14 +478,17 @@ services:
             [SpecFiles.TypesYaml] = """
 types:
   - user:
+      inherits: set
       fields:
         - email:
             type: string
   - tag:
       fields:
         - user_id:
+            type: integer
             references: user.id
         - tag_id:
+            type: integer
             references: tag.id
 """,
             [SpecFiles.RoutesYaml] = """
@@ -364,8 +506,9 @@ combined_routes:
             target: user
 """,
         });
-        var routed = await new DeterministicParser(routes).Parse(new Dictionary<string, string>());
-        Assert.NotNull(routed);
+        var missing = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new DeterministicParser(routes).Parse(new Dictionary<string, string>()));
+        Assert.Contains("tag.tag_id references tag.id has no type", missing.Message);
     }
 
     [Fact]
