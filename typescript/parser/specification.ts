@@ -166,11 +166,11 @@ const markedIds = (type: IdentityType): string[] =>
   type.fields.filter((f) => f.isId === true).map((f) => f.name);
 
 export const hasAuthoredIdentity = (type: IdentityType): boolean =>
-  (type.ids !== undefined && type.ids.length > 0) || markedIds(type).length > 0;
+  (type.ids?.length ?? 0) > 0 || markedIds(type).length > 0;
 
 export const identityColumns = (type?: IdentityType): string[] => {
   if (!type) return ["id"];
-  if (type.ids !== undefined && type.ids.length > 0) return [...type.ids];
+  if ((type.ids?.length ?? 0) > 0) return [...type.ids!];
   const marked = markedIds(type);
   return marked.length > 0 ? marked : type.inherits === "set" ? ["id"] : [];
 };
@@ -234,12 +234,10 @@ const isOwnerIdentityRef = (
   byName: Map<string, Type>,
 ): boolean => {
   if (references === undefined) return false;
-  const parts = (Array.isArray(references) ? references : [references]).map(
-    (ref) => {
-      const split = splitDot(ref);
-      return split ? { type: split[0], field: split[1] } : { type: "", field: ref };
-    },
-  );
+  const parts = (Array.isArray(references) ? references : [references]).map((ref) => {
+    const split = splitDot(ref);
+    return split ? { type: split[0], field: split[1] } : { type: "", field: ref };
+  });
   const owner = parts[0]!.type;
   if (!owner || owner === selfName) return false;
   const identity = identityFieldNames(byName.get(owner), byName);
@@ -363,7 +361,7 @@ export const expandTypes = (types: Type[]): Type[] => {
     if (stack.has(name)) return undefined;
     const type = byName.get(name);
     if (!type) return undefined;
-    if (type.ids !== undefined && type.ids.length > 0) return type.ids;
+    if ((type.ids?.length ?? 0) > 0) return type.ids;
     if (type.fields.some((f) => f.isId === true)) return undefined;
     if (type.inherits && type.inherits !== "set" && type.inherits !== "dictionary") {
       stack.add(name);
@@ -402,8 +400,7 @@ const columnType = (
   field: TypeField,
   seen: Set<string>,
 ): string => {
-  if (seen.has(reference)) throw missingParent(type, field);
-  seen.add(reference);
+  if (seen.has(reference) || !seen.add(reference)) throw missingParent(type, field);
   const split = splitDot(reference);
   const found = split && named.get(split[0])?.fields.find((entry) => entry.name === split[1]);
   if (found === undefined) throw missingParent(type, field);
@@ -420,7 +417,7 @@ const resolveReferenceTypes = (types: Type[]): Type[] => {
       for (const item of refValues(field.references)) {
         const parent = columnType(item, named, type, field, new Set());
         if (field.isArray || field.isMap) continue;
-        if (field.type.length === 0 || field.type === "reference") {
+        if (field.type === "" || field.type === "reference") {
           const parsed = parseFieldType(parent);
           field.type = parent;
           field.kind = parsed.kind;

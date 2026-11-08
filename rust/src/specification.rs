@@ -309,9 +309,8 @@ pub fn identity_columns(type_def: Option<&Type>) -> Vec<String> {
     }
     let marked = marked_ids(type_def);
     if !marked.is_empty() {
-        return marked;
-    }
-    if type_def.inherits.as_deref() == Some("set") {
+        marked
+    } else if type_def.inherits.as_deref() == Some("set") {
         vec!["id".to_string()]
     } else {
         Vec::new()
@@ -331,12 +330,13 @@ pub fn unique_lookup_fields(type_def: &Type, table: Option<&DatasourceTable>) ->
         if out.iter().any(|entry: &ServiceByField| entry.field == name) {
             return Ok(());
         }
-        let Some(field) = type_def.fields.iter().find(|field| field.name == name) else {
+        let Some(field) = type_def
+            .fields
+            .iter()
+            .find(|field| field.name == name && !field.type_name.is_empty())
+        else {
             return Err(Error::new(format!("{}.{name} has no type", type_def.name)));
         };
-        if field.type_name.is_empty() {
-            return Err(Error::new(format!("{}.{name} has no type", type_def.name)));
-        }
         let size = match field.size {
             Some(FieldSize::Num(value)) => Some(value),
             _ => None,
@@ -352,10 +352,8 @@ pub fn unique_lookup_fields(type_def: &Type, table: Option<&DatasourceTable>) ->
         add(&name)?;
     }
     if let Some(table) = table {
-        for overlay in &table.fields {
-            if overlay.is_unique == Some(true) {
-                add(&overlay.name)?;
-            }
+        for overlay in table.fields.iter().filter(|overlay| overlay.is_unique == Some(true)) {
+            add(&overlay.name)?;
         }
         for name in &table.unique_index_fields {
             add(name)?;
@@ -397,27 +395,29 @@ fn identity_field_names(type_def: Option<&Type>, by_name: &HashMap<String, Type>
     HashSet::new()
 }
 
+fn ref_values(references: &References) -> Vec<String> {
+    match references {
+        References::One(value) => vec![value.clone()],
+        References::Pair(left, right) => vec![left.clone(), right.clone()],
+    }
+}
+
 fn ref_parts(references: &References) -> Vec<(String, String)> {
-    let raw: Vec<&str> = match references {
-        References::One(value) => vec![value.as_str()],
-        References::Pair(left, right) => vec![left.as_str(), right.as_str()],
-    };
-    raw.into_iter()
-        .map(|item| match split_dot(item) {
+    ref_values(references)
+        .into_iter()
+        .map(|item| match split_dot(&item) {
             Some((type_name, field)) => (type_name.to_string(), field.to_string()),
-            None => (String::new(), item.to_string()),
+            None => (String::new(), item),
         })
         .collect()
 }
 
 fn is_owner_identity_ref(references: &References, self_name: &str, by_name: &HashMap<String, Type>) -> bool {
     let parts = ref_parts(references);
-    let Some(owner) = parts.first().map(|(type_name, _)| type_name.clone()) else {
-        return false;
+    let owner = match parts.first() {
+        Some((type_name, _)) if !type_name.is_empty() && type_name != self_name => type_name.clone(),
+        _ => return false,
     };
-    if owner.is_empty() || owner == self_name {
-        return false;
-    }
     let identity = identity_field_names(by_name.get(&owner), by_name, &mut HashSet::new());
     parts.iter().all(|(type_name, field)| type_name == &owner && identity.contains(field))
 }
@@ -518,27 +518,23 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
                               stack: &mut HashSet<String>,
                               cache: &mut HashMap<String, Vec<TypeField>>|
          -> Result<Vec<SourcedField>, Error> {
-            let fields = resolve(source, stack, by_name, cache)?;
-            let sourced: Vec<SourcedField> = fields
+            let drop_owner = by_name.get(source).and_then(|item| item.inherits.as_deref()) == Some("dictionary");
+            Ok(resolve(source, stack, by_name, cache)?
                 .into_iter()
                 .map(|field| SourcedField {
                     original: field.name.clone(),
                     source: source.to_string(),
                     field,
                 })
-                .collect();
-            let filtered = if by_name.get(source).and_then(|item| item.inherits.as_deref()) == Some("dictionary") {
-                sourced
-                    .into_iter()
-                    .filter(|field| match &field.field.references {
-                        Some(references) => !is_owner_identity_ref(references, source, by_name),
-                        None => true,
-                    })
-                    .collect()
-            } else {
-                sourced
-            };
-            Ok(filtered)
+                .filter(|field| {
+                    !drop_owner
+                        || field
+                            .field
+                            .references
+                            .as_ref()
+                            .is_none_or(|references| !is_owner_identity_ref(references, source, by_name))
+                })
+                .collect())
         };
         let skip_set_id = type_def.inherits.as_deref() == Some("set") && has_authored_identity(type_def);
         let mut inherited = Vec::new();
@@ -553,11 +549,10 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
             }
         }
         stack.remove(name);
-        let merged_prefix = keep_fields(
+        let mut merged = keep_fields(
             rename_fields(extract_fields(inherited, type_def.extract.as_deref()), type_def.mapping.as_ref()),
             type_def.remove_fields.as_deref(),
         );
-        let mut merged = merged_prefix;
         for field in &type_def.fields {
             merged.push(SourcedField {
                 original: field.name.clone(),
@@ -582,13 +577,11 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
         if type_def.fields.iter().any(|field| field.is_id) {
             return None;
         }
-        if let Some(parent) = type_def.inherits.as_ref() {
-            if parent != "set" && parent != "dictionary" {
-                stack.insert(name.to_string());
-                let ids = resolve_ids(parent, stack, by_name);
-                stack.remove(name);
-                return ids;
-            }
+        if let Some(parent) = type_def.inherits.as_ref().filter(|parent| *parent != "set" && *parent != "dictionary") {
+            stack.insert(name.to_string());
+            let ids = resolve_ids(parent, stack, by_name);
+            stack.remove(name);
+            return ids;
         }
         None
     }
@@ -610,13 +603,6 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     resolve_reference_types(expanded)
-}
-
-fn ref_values(references: &References) -> Vec<String> {
-    match references {
-        References::One(value) => vec![value.clone()],
-        References::Pair(left, right) => vec![left.clone(), right.clone()],
-    }
 }
 
 fn missing_parent(type_name: &str, field: &TypeField) -> Error {
@@ -645,11 +631,11 @@ fn column_type(
     let Some((table, name)) = reference.split_once('.') else {
         return Err(missing_parent(type_name, field));
     };
-    let found = types
+    let Some(found) = types
         .iter()
         .find(|entry| entry.name == table)
-        .and_then(|entry| entry.fields.iter().find(|entry| entry.name == name));
-    let Some(found) = found else {
+        .and_then(|entry| entry.fields.iter().find(|entry| entry.name == name))
+    else {
         return Err(missing_parent(type_name, field));
     };
     if !found.type_name.is_empty() {
