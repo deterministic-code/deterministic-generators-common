@@ -122,13 +122,21 @@ types:
         - ghost:
             type: integer
             references: missing.id
+  - missing:
+      fields:
+        - id:
+            type: integer
   - loop_a:
       fields:
+        - id:
+            type: integer
         - b:
             type: integer
             references: loop_b.id
   - loop_b:
       fields:
+        - id:
+            type: integer
         - a:
             type: integer
             references: loop_a.id

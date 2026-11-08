@@ -386,91 +386,54 @@ export const expandTypes = (types: Type[]): Type[] => {
   );
 };
 
-const refText = (references: NonNullable<TypeField["references"]>): string =>
-  Array.isArray(references) ? references.join(", ") : references;
-
-const scalarTarget = (
+const refValues = (
   references: NonNullable<TypeField["references"]>,
-): [string, string] | undefined => {
-  if (Array.isArray(references)) return undefined;
-  const split = references.indexOf(".");
-  return split < 0
-    ? ["", references]
-    : [references.slice(0, split), references.slice(split + 1)];
+): string[] => (Array.isArray(references) ? references : [references]);
+
+const missingParent = (type: Type, field: TypeField): Error =>
+  new Error(
+    `${type.name}.${field.name} references ${refValues(field.references!).join(", ")} has no type`,
+  );
+
+const columnType = (
+  reference: string,
+  named: Map<string, Type>,
+  type: Type,
+  field: TypeField,
+  seen: Set<string>,
+): string => {
+  if (seen.has(reference)) throw missingParent(type, field);
+  seen.add(reference);
+  const split = splitDot(reference);
+  const found = split && named.get(split[0])?.fields.find((entry) => entry.name === split[1]);
+  if (found === undefined) throw missingParent(type, field);
+  if (found.type.length > 0) return found.type;
+  if (typeof found.references !== "string") throw missingParent(type, field);
+  return columnType(found.references, named, type, field, seen);
 };
 
-const isScalarReference = (field: TypeField): boolean =>
-  field.references !== undefined && !field.isArray && !field.isMap;
-
-const copyColumnType = (field: TypeField, parent: TypeField): TypeField => ({
-  ...field,
-  type: parent.type,
-  kind: parent.kind,
-  base: parent.base,
-  ...(parent.size !== undefined ? { size: parent.size } : {}),
-});
-
 const resolveReferenceTypes = (types: Type[]): Type[] => {
-  const working = types.map((type) => ({
-    ...type,
-    fields: type.fields.map((field) => ({ ...field })),
-  }));
-  const byName = () => new Map(working.map((type) => [type.name, type]));
-  for (let pass = 0; pass < working.length; pass++) {
-    let changed = false;
-    let waiting = false;
-    const named = byName();
-    for (const type of working) {
-      type.fields = type.fields.map((field) => {
-        if (!isScalarReference(field)) return field;
-        const target = scalarTarget(field.references!);
-        if (target === undefined) {
-          if (field.type.length === 0) {
-            throw new Error(
-              `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
-            );
-          }
-          return field;
-        }
-        const parentType = named.get(target[0]);
-        if (parentType === undefined) {
-          throw new Error(
-            `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
-          );
-        }
-        const parent = parentType.fields.find((item) => item.name === target[1]);
-        if (parent === undefined) {
-          throw new Error(
-            `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
-          );
-        }
-        if (parent.type.length === 0) {
-          waiting = true;
-          return field;
-        }
-        if (field.type.length === 0) {
-          changed = true;
-          return copyColumnType(field, parent);
-        }
-        if (field.type !== parent.type) {
-          throw new Error(
-            `${type.name}.${field.name} type ${field.type} does not match ${refText(field.references!)} type ${parent.type}`,
-          );
-        }
-        return field;
-      });
-    }
-    if (!changed && !waiting) break;
-  }
-  for (const type of working) {
+  const named = new Map(types.map((type) => [type.name, type]));
+  for (const type of types) {
     for (const field of type.fields) {
-      if (!isScalarReference(field) || field.type.length > 0) continue;
-      throw new Error(
-        `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
-      );
+      if (field.references === undefined) continue;
+      for (const item of refValues(field.references)) {
+        const parent = columnType(item, named, type, field, new Set());
+        if (field.isArray || field.isMap) continue;
+        if (field.type.length === 0 || field.type === "reference") {
+          const parsed = parseFieldType(parent);
+          field.type = parent;
+          field.kind = parsed.kind;
+          field.base = parsed.base;
+        } else if (field.type !== parent) {
+          throw new Error(
+            `${type.name}.${field.name} type ${field.type} does not match ${item} type ${parent}`,
+          );
+        }
+      }
     }
   }
-  return working;
+  return types;
 };
 
 export const typeHasTag = (type: Type, tag: string): boolean =>

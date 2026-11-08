@@ -116,7 +116,6 @@ public class CoverageTests
                         default_value: null
                     - nick:
                         type: string
-                        references: [user, id]
                     - display_name:
                         type: string
               - role:
@@ -187,6 +186,11 @@ public class CoverageTests
                     - role_id:
                         references: role.id
                         type: integer
+              - labels:
+                  tags: [view_type]
+                  fields:
+                    - key:
+                        type: string
               - note:
                   tags: [view_type]
                   fields:

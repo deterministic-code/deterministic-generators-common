@@ -36,14 +36,16 @@ types:
         - code:
             type: string
             is_id: true
+        - n:
+            type: integer
         - flag:
             type: boolean
         - other:
             type: integer
-            references: [user.id, 1]
+            references: [user.n, role.id]
         - pair:
-            type: integer
-            references: [user.id, user.code]
+            type: string
+            references: [user.code, user.email]
         - size_n:
             type: string
             size: 8
@@ -56,24 +58,26 @@ types:
       fields:
         - user_id:
             type: integer
-            references: user.id
+            references: user.n
   - note:
       tags: [view_type]
       fields:
         - owner:
             type: integer
-            references: person.id
+            references: user.n
   - loop_a:
       tags: [datasource_type]
+      inherits: set
       fields:
         - b:
             type: integer
             references: loop_b.id
         - hub:
             type: integer
-            references: user.id
+            references: user.n
   - loop_b:
       tags: [datasource_type]
+      inherits: set
       fields:
         - a:
             type: integer
@@ -87,7 +91,7 @@ types:
       fields:
         - left_id:
             type: integer
-            references: user.id
+            references: user.n
         - right_id:
             type: integer
             references: role.id
@@ -616,7 +620,7 @@ fn internals_match_the_typescript_semantic_suite() {
     let m2m = parse(&[
         (
             "types.yaml",
-            "types:\n  - user:\n      tags: [view_type]\n      fields: []\n  - role:\n      tags: [view_type]\n      fields: []\n  - link:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            type: integer\n            references: user.id\n  - other:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            type: integer\n            references: role.id\n",
+            "types:\n  - user:\n      tags: [view_type]\n      inherits: set\n      fields: []\n  - role:\n      tags: [view_type]\n      inherits: set\n      fields: []\n  - link:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            type: integer\n            references: user.id\n  - other:\n      tags: [many_to_many]\n      fields:\n        - left_id:\n            type: integer\n            references: role.id\n",
         ),
         (
             "routes.yaml",

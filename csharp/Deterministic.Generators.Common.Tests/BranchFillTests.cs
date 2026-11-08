@@ -182,9 +182,13 @@ public class BranchFillTests
             Type("owner", "inherit", "base", [Field("label", "string")]),
             Type("child", "inherit", "owner", [Field("extra", "string")], extract: ["owner.label", "bare"]),
             Type("mapref", "shaped", fields: [Field("owner_id", "integer", references: new List<string> { "owner.id" })]),
-            Type("badref", "shaped", fields: [Field("x", "integer", references: 5)]),
         ]);
         Assert.Contains(expanded, type => type.Name == "child");
+        var badref = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            Type("badref", "shaped", fields: [Field("x", "integer", references: 5)]),
+        ]));
+        Assert.Contains("badref.x references  has no type", badref.Message);
         var tree = TypeTrees.DatasourceTypeTree(expanded, "all");
         _ = TypeTrees.DatasourceTypeTreeYaml(tree);
         _ = TypeTrees.DatasourceTypeGraph(expanded);
@@ -197,12 +201,14 @@ public class BranchFillTests
 types:
   - user:
       tags: [datasource_type]
+      inherits: set
       fields:
         - email:
             type: string
             size: [1.5, 2]
   - note:
       tags: [datasource_type]
+      inherits: set
       fields:
         - user_id:
             type: integer

@@ -100,30 +100,26 @@ public static class Specification
                 throw new InvalidOperationException($"circular inherit/union involving \"{name}\"");
             if (!byName.TryGetValue(name, out var type)) return [];
             stack.Add(name);
-
-            List<SourcedField> ComposeSource(string source)
-            {
-                var fields = Resolve(source, stack).Select(f => SourcedField.From(f, source, f.Name)).ToList();
-                if (byName.TryGetValue(source, out var src) && src.Inherits == "dictionary")
-                {
-                    fields = fields.Where(f => !IsOwnerIdentityRef(f.References, src.Name, byName)).ToList();
-                }
-                return fields;
-            }
-
             var skipSetId = type.Inherits == "set" && HasAuthoredIdentity(type);
             var inherited = new List<SourcedField>();
-            if (type.Inherits is not null && !skipSetId) inherited.AddRange(ComposeSource(type.Inherits));
-            foreach (var member in type.Union ?? []) inherited.AddRange(ComposeSource(member));
+            if (type.Inherits is not null && !skipSetId) inherited.AddRange(Compose(type.Inherits));
+            foreach (var member in type.Union ?? []) inherited.AddRange(Compose(member));
             stack.Remove(name);
-            var merged = new List<SourcedField>();
-            merged.AddRange(KeepFields(RenameFields(ExtractFields(inherited, type.Extract), type.Mapping), type.RemoveFields));
+            var merged = KeepFields(RenameFields(ExtractFields(inherited, type.Extract), type.Mapping), type.RemoveFields);
             foreach (var field in type.Fields)
                 merged.Add(SourcedField.From(field, name, field.Name));
             AssertUnique(merged, name);
             var result = merged.Select(f => f.ToField()).ToList();
             cache[name] = result;
             return result;
+
+            List<SourcedField> Compose(string source)
+            {
+                var fields = Resolve(source, stack).Select(f => SourcedField.From(f, source, f.Name)).ToList();
+                if (byName.TryGetValue(source, out var src) && src.Inherits == "dictionary")
+                    fields = fields.Where(f => !IsOwnerIdentityRef(f.References, src.Name, byName)).ToList();
+                return fields;
+            }
         }
 
         List<string>? ResolveIds(string name, HashSet<string> stack)
@@ -161,96 +157,61 @@ public static class Specification
         }).ToList());
     }
 
-    private static string RefText(object? references) =>
+    private static IReadOnlyList<string> RefValues(object? references) =>
         references switch
         {
-            string text => text,
-            IEnumerable<string> list => string.Join(", ", list),
-            _ => "",
+            string text => [text],
+            IReadOnlyList<string> list => list,
+            _ => [],
         };
 
-    private static (string Table, string Column)? ScalarTarget(object? references)
+    private static InvalidOperationException MissingParent(TypeModel type, TypeField field) =>
+        new($"{type.Name}.{field.Name} references {string.Join(", ", RefValues(field.References))} has no type");
+
+    private static string ColumnType(
+        string reference,
+        Dictionary<string, TypeModel> byName,
+        TypeModel type,
+        TypeField field,
+        HashSet<string> seen)
     {
-        if (references is not string text) return null;
-        var split = SplitDot(text);
-        return split is null ? ("", text) : split;
+        if (!seen.Add(reference)) throw MissingParent(type, field);
+        var split = SplitDot(reference) ?? throw MissingParent(type, field);
+        var column = (byName.GetValueOrDefault(split.Left)?.Fields.FirstOrDefault(entry => entry.Name == split.Right))
+            ?? throw MissingParent(type, field);
+        if (column.Type.Length > 0) return column.Type;
+        return column.References is string next
+            ? ColumnType(next, byName, type, field, seen)
+            : throw MissingParent(type, field);
     }
-
-    private static bool IsScalarReference(TypeField field) =>
-        field.References is not null && !field.IsArray && !field.IsMap;
-
-    private static TypeField CopyColumnType(TypeField field, TypeField parent) => new()
-    {
-        Name = field.Name,
-        Type = parent.Type,
-        Kind = parent.Kind,
-        Base = parent.Base,
-        IsArray = field.IsArray,
-        IsMap = field.IsMap,
-        IsNullable = field.IsNullable,
-        IsId = field.IsId,
-        Size = parent.HasSize ? parent.Size : field.Size,
-        HasSize = parent.HasSize || field.HasSize,
-        MinSize = field.MinSize,
-        References = field.References,
-        HasDefault = field.HasDefault,
-        DefaultValue = field.DefaultValue,
-        DefaultIsLiteral = field.DefaultIsLiteral,
-    };
 
     private static List<TypeModel> ResolveReferenceTypes(List<TypeModel> types)
     {
         var byName = types.ToDictionary(type => type.Name, StringComparer.Ordinal);
-        for (var pass = 0; pass < types.Count; pass++)
-        {
-            var changed = false;
-            var waiting = false;
-            foreach (var type in types)
-            {
-                for (var i = 0; i < type.Fields.Count; i++)
-                {
-                    var field = type.Fields[i];
-                    if (!IsScalarReference(field)) continue;
-                    var target = ScalarTarget(field.References);
-                    if (target is null)
-                    {
-                        if (field.Type.Length == 0)
-                            throw new InvalidOperationException(
-                                $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
-                        continue;
-                    }
-                    if (!byName.TryGetValue(target.Value.Table, out var parentType))
-                        throw new InvalidOperationException(
-                            $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
-                    var parent = parentType.Fields.FirstOrDefault(item => item.Name == target.Value.Column);
-                    if (parent is null)
-                        throw new InvalidOperationException(
-                            $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
-                    if (parent.Type.Length == 0)
-                    {
-                        waiting = true;
-                        continue;
-                    }
-                    if (field.Type.Length == 0)
-                    {
-                        type.Fields[i] = CopyColumnType(field, parent);
-                        changed = true;
-                        continue;
-                    }
-                    if (field.Type != parent.Type)
-                        throw new InvalidOperationException(
-                            $"{type.Name}.{field.Name} type {field.Type} does not match {RefText(field.References)} type {parent.Type}");
-                }
-            }
-            if (!changed && !waiting) break;
-        }
         foreach (var type in types)
         {
             foreach (var field in type.Fields)
             {
-                if (!IsScalarReference(field) || field.Type.Length > 0) continue;
-                throw new InvalidOperationException(
-                    $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
+                if (field.References is null) continue;
+                var refs = RefValues(field.References);
+                if (refs.Count == 0) throw MissingParent(type, field);
+                foreach (var item in refs)
+                {
+                    var parent = ColumnType(item, byName, type, field, new(StringComparer.Ordinal));
+                    if (field.IsArray || field.IsMap) continue;
+                    if (field.Type.Length == 0 || field.Type == "reference")
+                    {
+                        var parsed = ParseFieldType(parent);
+                        field.Type = parent;
+                        field.Kind = parsed.Kind;
+                        field.Base = parsed.Base;
+                    }
+                    else if (field.Type != parent)
+                    {
+                        throw new InvalidOperationException(
+                            $"{type.Name}.{field.Name} type {field.Type} does not match {item} type {parent}");
+                    }
+                }
             }
         }
         return types;
@@ -281,14 +242,8 @@ public static class Specification
     private static bool IsOwnerIdentityRef(object? references, string selfName, Dictionary<string, TypeModel> byName)
     {
         if (references is null) return false;
-        var raw = references switch
-        {
-            string s => new[] { s },
-            string[] arr => arr,
-            IReadOnlyList<string> list => list.ToArray(),
-            _ => [],
-        };
-        if (raw.Length == 0) return false;
+        var raw = RefValues(references);
+        if (raw.Count == 0) return false;
         var parts = raw.Select(reference =>
         {
             var split = SplitDot(reference);
@@ -361,7 +316,7 @@ public static class Specification
         })).ToList();
     }
 
-    private sealed class SourcedField
+    private sealed record SourcedField
     {
         public required TypeField Field { get; init; }
         public string? Source { get; init; }
@@ -374,14 +329,14 @@ public static class Specification
 
         public SourcedField Renamed(string name) => new()
         {
-            Field = Clone(Field, name),
+            Field = Named(Field, name),
             Source = Source,
             Original = Original,
         };
 
         public TypeField ToField() => Field;
 
-        private static TypeField Clone(TypeField field, string name) => new()
+        private static TypeField Named(TypeField field, string name) => new()
         {
             Name = name,
             Type = field.Type,

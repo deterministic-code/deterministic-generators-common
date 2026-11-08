@@ -140,14 +140,12 @@ public class BehaviorTests
                             type: string
                             size: 256
                         - role_id:
-                            type: reference
                             references: role.id
                   - address:
                       tags: [datasource_type]
                       inherits: set
                       fields:
                         - user_id:
-                            type: reference
                             references: user.id
                         - line1:
                             type: string
@@ -156,10 +154,8 @@ public class BehaviorTests
                       inherits: set
                       fields:
                         - user_id:
-                            type: reference
                             references: user.id
                         - role_id:
-                            type: reference
                             references: role.id
                 """,
             [SpecFiles.DatasourceYaml] = """

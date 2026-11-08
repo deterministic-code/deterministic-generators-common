@@ -1,6 +1,6 @@
 namespace Deterministic.Generators.Common;
 
-public sealed class FieldTypeParts
+public sealed record FieldTypeParts
 {
     public required string Kind { get; init; }
     public required string Base { get; init; }
@@ -8,12 +8,12 @@ public sealed class FieldTypeParts
     public bool IsMap { get; init; }
 }
 
-public sealed class TypeField
+public sealed record TypeField
 {
     public required string Name { get; init; }
-    public required string Type { get; init; }
-    public required string Kind { get; init; }
-    public required string Base { get; init; }
+    public required string Type { get; set; }
+    public required string Kind { get; set; }
+    public required string Base { get; set; }
     public bool IsArray { get; init; }
     public bool IsMap { get; init; }
     public bool IsNullable { get; init; }
@@ -27,7 +27,7 @@ public sealed class TypeField
     public bool DefaultIsLiteral { get; init; }
 }
 
-public sealed class TypeModel
+public sealed record TypeModel
 {
     public required string Name { get; init; }
     public List<string> Tags { get; init; } = [];
@@ -41,7 +41,7 @@ public sealed class TypeModel
     public List<TypeField> Fields { get; init; } = [];
 }
 
-public sealed class DatasourceFieldOverlay
+public sealed record DatasourceFieldOverlay
 {
     public required string Name { get; init; }
     public bool? IsReadonly { get; init; }
@@ -54,14 +54,14 @@ public sealed class DatasourceFieldOverlay
     public bool? UseNativeRowVersion { get; init; }
 }
 
-public sealed class DatasourceIndex
+public sealed record DatasourceIndex
 {
     public required string Name { get; init; }
     public List<string> Fields { get; init; } = [];
     public bool IsUnique { get; init; }
 }
 
-public sealed class DatasourceTable
+public sealed record DatasourceTable
 {
     public required string Name { get; init; }
     public string? Mapping { get; init; }
@@ -71,20 +71,20 @@ public sealed class DatasourceTable
     public bool? UseOptimisticConcurrency { get; init; }
 }
 
-public sealed class SeedRow
+public sealed record SeedRow
 {
     public required int Id { get; init; }
     public Dictionary<string, object?> Row { get; init; } = [];
 }
 
-public sealed class ServiceByField
+public sealed record ServiceByField
 {
     public required string Field { get; init; }
     public required string Type { get; init; }
     public int? Size { get; init; }
 }
 
-public sealed class ServiceCandidate
+public sealed record ServiceCandidate
 {
     public required string Name { get; init; }
     public List<string> Tags { get; init; } = [];
@@ -92,27 +92,27 @@ public sealed class ServiceCandidate
     public List<ServiceByField> ByFields { get; init; } = [];
 }
 
-public sealed class CustomServiceEntry
+public sealed record CustomServiceEntry
 {
     public required string Name { get; init; }
     public string? Module { get; init; }
     public List<string> Methods { get; init; } = [];
 }
 
-public sealed class ParsedServices
+public sealed record ParsedServices
 {
     public List<ServiceCandidate> Generics { get; init; } = [];
     public List<CustomServiceEntry> Customs { get; init; } = [];
 }
 
-public sealed class RouteByField
+public sealed record RouteByField
 {
     public required string ByField { get; init; }
     public List<string>? Methods { get; set; }
     public bool ByFieldUnique { get; init; }
 }
 
-public sealed class RouteCandidate
+public sealed record RouteCandidate
 {
     public required string Name { get; init; }
     public List<string> Tags { get; init; } = [];
@@ -123,7 +123,7 @@ public sealed class RouteCandidate
     public List<string>? EagerReadMemberOnly { get; init; }
 }
 
-public sealed class CustomRouteEntry
+public sealed record CustomRouteEntry
 {
     public required string Name { get; init; }
     public string? Path { get; init; }
@@ -135,7 +135,7 @@ public sealed class CustomRouteEntry
     public string? RouteClass { get; init; }
 }
 
-public abstract class NestedRouteDescriptor
+public abstract record NestedRouteDescriptor
 {
     public required string Kind { get; init; }
     public required string Parent { get; init; }
@@ -145,18 +145,18 @@ public abstract class NestedRouteDescriptor
     public required string SegmentTail { get; init; }
 }
 
-public sealed class DirectFkDescriptor : NestedRouteDescriptor
+public sealed record DirectFkDescriptor : NestedRouteDescriptor
 {
     public required ChildRef Child { get; init; }
     public required string FkColumn { get; init; }
 }
 
-public sealed class ChildRef
+public sealed record ChildRef
 {
     public required string Name { get; init; }
 }
 
-public sealed class M2mDescriptor : NestedRouteDescriptor
+public sealed record M2mDescriptor : NestedRouteDescriptor
 {
     public required string Junction { get; init; }
     public required string Target { get; init; }
@@ -165,7 +165,7 @@ public sealed class M2mDescriptor : NestedRouteDescriptor
     public required string ChildFkField { get; init; }
 }
 
-public sealed class ParsedRoutes
+public sealed record ParsedRoutes
 {
     public List<RouteCandidate> Candidates { get; init; } = [];
     public List<CustomRouteEntry> Customs { get; init; } = [];
