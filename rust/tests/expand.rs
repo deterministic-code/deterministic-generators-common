@@ -91,6 +91,7 @@ fn unique_indexes_and_non_string_references_are_kept() {
             type: string
             size: 8
         - pair:
+            type: integer
             references: [1, user.id]
 "#
         .to_string(),
@@ -114,7 +115,7 @@ fn unique_indexes_and_non_string_references_are_kept() {
         .unwrap();
     let user = spec.expanded_types.iter().find(|type_def| type_def.name == "user").unwrap();
     let table = spec.datasource.iter().find(|table| table.name == "user");
-    let lookups = unique_lookup_fields(user, table);
+    let lookups = unique_lookup_fields(user, table).unwrap();
     assert!(lookups.iter().any(|field| field.field == "code"));
     assert!(user.fields.iter().find(|field| field.name == "pair").unwrap().references.is_none());
 }

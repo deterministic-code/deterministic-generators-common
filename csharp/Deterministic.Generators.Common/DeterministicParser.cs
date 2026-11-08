@@ -96,9 +96,14 @@ public sealed class DeterministicParser
 
     private static TypeField ReadField(string name, YamlNode node)
     {
-        var rawType = node.Str("type") ?? "string";
-        var parsed = Specification.ParseFieldType(rawType);
         var references = ReferencesOf(node);
+        var authored = node.Str("type");
+        if (authored is null && references is null)
+            throw new InvalidOperationException($"{name} has no type");
+        var rawType = authored ?? "";
+        var parsed = rawType.Length == 0
+            ? new FieldTypeParts { Kind = "primitive", Base = "", IsArray = false, IsMap = false }
+            : Specification.ParseFieldType(rawType);
         var size = SizeOf(node);
         var literal = node.Literal("default_value");
         object? implicitDefault = parsed.IsArray
@@ -106,7 +111,7 @@ public sealed class DeterministicParser
             : parsed.IsMap
                 ? new Dictionary<string, object?>(StringComparer.Ordinal)
                 : null;
-        var authored = node.Has("default_value");
+        var hasDefault = node.Has("default_value");
         return new TypeField
         {
             Name = name,
@@ -121,7 +126,7 @@ public sealed class DeterministicParser
             HasSize = size is not null,
             MinSize = node.FiniteInt("min_size") is long min ? (int)min : null,
             References = references,
-            HasDefault = authored || implicitDefault is not null,
+            HasDefault = hasDefault || implicitDefault is not null,
             DefaultValue = literal.Present ? literal.Value : implicitDefault,
             DefaultIsLiteral = literal.Present || implicitDefault is not null,
         };

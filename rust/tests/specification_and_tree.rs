@@ -132,28 +132,26 @@ fn parse_field_type_and_primary_key() {
 }
 
 #[test]
-fn unique_lookups_skip_duplicates_and_default_missing_type() {
+fn unique_lookups_skip_duplicates_and_throw_when_missing() {
     let person = inherit(
         shaped("person", vec![id_field("code", "integer"), sized("email", "string", 256.0)]),
         "set",
     );
     let overlays = table("person", &["email"], &[]);
     assert_eq!(
-        unique_lookup_fields(&person, Some(&overlays)),
+        unique_lookup_fields(&person, Some(&overlays)).unwrap(),
         vec![lookup("code", "integer", None), lookup("email", "string", Some(256.0))]
     );
     let user = shaped("user", vec![sized("email", "string", 256.0), fld("code", "string")]);
     let user_table = table("user", &["email"], &["code"]);
     assert_eq!(
-        unique_lookup_fields(&user, Some(&user_table)),
+        unique_lookup_fields(&user, Some(&user_table)).unwrap(),
         vec![lookup("email", "string", Some(256.0)), lookup("code", "string", None)]
     );
     let partial = shaped("user", vec![sized("email", "string", 256.0)]);
     let partial_table = table("user", &["email", "missing"], &["email"]);
-    assert_eq!(
-        unique_lookup_fields(&partial, Some(&partial_table)),
-        vec![lookup("email", "string", Some(256.0)), lookup("missing", "string", None)]
-    );
+    let err = unique_lookup_fields(&partial, Some(&partial_table)).unwrap_err();
+    assert!(err.to_string().contains("user.missing has no type"));
 }
 
 #[test]
@@ -292,33 +290,75 @@ fn dictionary_owner_fk_rules() {
     assert_eq!(names_of(&expanded, "alias_view"), vec!["code", "key", "value"]);
     assert_eq!(names_of(&expanded, "link_view"), vec!["left_id", "right_id", "key", "value"]);
 
-    let note = shaped("note", vec![fld("body", "string")]);
-    let orphan = inherit(shaped("orphan", vec![]), "ghost");
-    let mut fields = vec![
-        fld("note_body", "string"),
-        fld("bare", "string"),
-        fld("self_id", "string"),
-        fld("ghost_id", "string"),
-        fld("orphan_id", "string"),
-        fld("mixed", "string"),
-        fld("key", "string"),
-        fld("value", "string"),
-    ];
-    fields[0].references = Some(References::One("note.body".into()));
-    fields[1].references = Some(References::One("id".into()));
-    fields[2].references = Some(References::One("settings.key".into()));
-    fields[3].references = Some(References::One("ghost.id".into()));
-    fields[4].references = Some(References::One("orphan.id".into()));
-    fields[5].references = Some(References::Pair("note.body".into(), "orphan.id".into()));
-    let settings = inherit(shaped("settings", fields), "dictionary");
-    let mut note_view = inherit(shaped("note_view", vec![]), "note");
-    note_view.union = Some(vec!["settings".into()]);
-    note_view.tags = vec!["view_type".into()];
-    let expanded = expand_types(&[note, orphan, settings, note_view]).unwrap();
-    assert_eq!(
-        names_of(&expanded, "note_view"),
-        vec!["body", "note_body", "bare", "self_id", "ghost_id", "orphan_id", "mixed", "key", "value"]
-    );
+    let mut two_hop = fld("contact_id", "");
+    two_hop.references = Some(References::One("contact.id".into()));
+    let expanded = expand_types(&[
+        inherit(shaped("base", vec![id_field("id", "integer")]), "set"),
+        inherit(shaped("contact_base", vec![]), "base"),
+        inherit(shaped("contact", vec![]), "contact_base"),
+        inherit(shaped("address_base", vec![two_hop]), "base"),
+    ])
+    .unwrap();
+    let contact_id = expanded
+        .iter()
+        .find(|type_def| type_def.name == "address_base")
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "contact_id")
+        .unwrap();
+    assert_eq!(contact_id.type_name, "integer");
+    assert_eq!(contact_id.base, "integer");
+    let mut wrong_two_hop = fld("contact_id", "string");
+    wrong_two_hop.references = Some(References::One("contact.id".into()));
+    let err = expand_types(&[
+        inherit(shaped("base", vec![id_field("id", "integer")]), "set"),
+        inherit(shaped("contact_base", vec![]), "base"),
+        inherit(shaped("contact", vec![]), "contact_base"),
+        inherit(shaped("address_base", vec![wrong_two_hop]), "base"),
+    ])
+    .unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.contact_id type string does not match contact.id type integer"));
+
+    let mut contact_id = fld("contact_id", "");
+    contact_id.references = Some(References::One("contact_base.id".into()));
+    let expanded = expand_types(&[
+        inherit(shaped("base", vec![id_field("id", "integer")]), "set"),
+        inherit(shaped("contact_base", vec![]), "base"),
+        inherit(shaped("address_base", vec![contact_id]), "base"),
+    ])
+    .unwrap();
+    let contact_id = expanded
+        .iter()
+        .find(|type_def| type_def.name == "address_base")
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "contact_id")
+        .unwrap();
+    assert_eq!(contact_id.type_name, "integer");
+    assert_eq!(contact_id.base, "integer");
+
+    let mut wrong = fld("contact_id", "string");
+    wrong.references = Some(References::One("contact_base.id".into()));
+    let err = expand_types(&[
+        inherit(shaped("base", vec![id_field("id", "integer")]), "set"),
+        inherit(shaped("contact_base", vec![]), "base"),
+        inherit(shaped("address_base", vec![wrong]), "base"),
+    ])
+    .unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.contact_id type string does not match contact_base.id type integer"));
+
+    let mut ghost = fld("ghost_id", "");
+    ghost.references = Some(References::One("ghost.id".into()));
+    let err = expand_types(&[shaped("address_base", vec![ghost])]).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("address_base.ghost_id references ghost.id has no type"));
 }
 
 fn ds(name: &str, refs: &[&str]) -> Type {

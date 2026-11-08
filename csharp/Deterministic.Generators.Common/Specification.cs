@@ -62,11 +62,13 @@ public static class Specification
         {
             if (result.Any(e => e.Field == name)) return;
             var field = type.Fields.FirstOrDefault(x => x.Name == name);
-            int? size = field?.HasSize == true && field.Size is long or int ? Convert.ToInt32(field.Size) : null;
+            if (field is null || field.Type.Length == 0)
+                throw new InvalidOperationException($"{type.Name}.{name} has no type");
+            int? size = field.HasSize && field.Size is long or int ? Convert.ToInt32(field.Size) : null;
             result.Add(new ServiceByField
             {
                 Field = name,
-                Type = field?.Type ?? "string",
+                Type = field.Type,
                 Size = size,
             });
         }
@@ -140,7 +142,7 @@ public static class Specification
             return null;
         }
 
-        return types.Select(type =>
+        return ResolveReferenceTypes(types.Select(type =>
         {
             var ids = type.Ids ?? ResolveIds(type.Name, []);
             return new TypeModel
@@ -156,7 +158,102 @@ public static class Specification
                 Ids = ids is { Count: > 0 } ? [.. ids] : null,
                 Fields = Resolve(type.Name, []),
             };
-        }).ToList();
+        }).ToList());
+    }
+
+    private static string RefText(object? references) =>
+        references switch
+        {
+            string text => text,
+            IEnumerable<string> list => string.Join(", ", list),
+            _ => "",
+        };
+
+    private static (string Table, string Column)? ScalarTarget(object? references)
+    {
+        if (references is not string text) return null;
+        var split = SplitDot(text);
+        return split is null ? ("", text) : split;
+    }
+
+    private static bool IsScalarReference(TypeField field) =>
+        field.References is not null && !field.IsArray && !field.IsMap;
+
+    private static TypeField CopyColumnType(TypeField field, TypeField parent) => new()
+    {
+        Name = field.Name,
+        Type = parent.Type,
+        Kind = parent.Kind,
+        Base = parent.Base,
+        IsArray = field.IsArray,
+        IsMap = field.IsMap,
+        IsNullable = field.IsNullable,
+        IsId = field.IsId,
+        Size = parent.HasSize ? parent.Size : field.Size,
+        HasSize = parent.HasSize || field.HasSize,
+        MinSize = field.MinSize,
+        References = field.References,
+        HasDefault = field.HasDefault,
+        DefaultValue = field.DefaultValue,
+        DefaultIsLiteral = field.DefaultIsLiteral,
+    };
+
+    private static List<TypeModel> ResolveReferenceTypes(List<TypeModel> types)
+    {
+        var byName = types.ToDictionary(type => type.Name, StringComparer.Ordinal);
+        for (var pass = 0; pass < types.Count; pass++)
+        {
+            var changed = false;
+            var waiting = false;
+            foreach (var type in types)
+            {
+                for (var i = 0; i < type.Fields.Count; i++)
+                {
+                    var field = type.Fields[i];
+                    if (!IsScalarReference(field)) continue;
+                    var target = ScalarTarget(field.References);
+                    if (target is null)
+                    {
+                        if (field.Type.Length == 0)
+                            throw new InvalidOperationException(
+                                $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
+                        continue;
+                    }
+                    if (!byName.TryGetValue(target.Value.Table, out var parentType))
+                        throw new InvalidOperationException(
+                            $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
+                    var parent = parentType.Fields.FirstOrDefault(item => item.Name == target.Value.Column);
+                    if (parent is null)
+                        throw new InvalidOperationException(
+                            $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
+                    if (parent.Type.Length == 0)
+                    {
+                        waiting = true;
+                        continue;
+                    }
+                    if (field.Type.Length == 0)
+                    {
+                        type.Fields[i] = CopyColumnType(field, parent);
+                        changed = true;
+                        continue;
+                    }
+                    if (field.Type != parent.Type)
+                        throw new InvalidOperationException(
+                            $"{type.Name}.{field.Name} type {field.Type} does not match {RefText(field.References)} type {parent.Type}");
+                }
+            }
+            if (!changed && !waiting) break;
+        }
+        foreach (var type in types)
+        {
+            foreach (var field in type.Fields)
+            {
+                if (!IsScalarReference(field) || field.Type.Length > 0) continue;
+                throw new InvalidOperationException(
+                    $"{type.Name}.{field.Name} references {RefText(field.References)} has no type");
+            }
+        }
+        return types;
     }
 
     private static (string Left, string Right)? SplitDot(string value)

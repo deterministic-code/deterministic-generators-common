@@ -188,10 +188,13 @@ export const uniqueLookupFields = (
   const add = (name: string) => {
     if (out.some((e) => e.field === name)) return;
     const f = type.fields.find((x) => x.name === name);
+    if (f === undefined || f.type.length === 0) {
+      throw new Error(`${type.name}.${name} has no type`);
+    }
     out.push({
       field: name,
-      type: typeof f?.type === "string" ? f.type : "string",
-      ...(typeof f?.size === "number" ? { size: f.size } : {}),
+      type: f.type,
+      ...(typeof f.size === "number" ? { size: f.size } : {}),
     });
   };
   for (const name of identityColumns(type)) add(name);
@@ -371,14 +374,103 @@ export const expandTypes = (types: Type[]): Type[] => {
     return undefined;
   };
 
-  return types.map((type) => {
-    const ids = type.ids ?? resolveIds(type.name, new Set());
-    return {
-      ...type,
-      ...(ids !== undefined && ids.length > 0 ? { ids } : {}),
-      fields: resolve(type.name, new Set()),
-    };
-  });
+  return resolveReferenceTypes(
+    types.map((type) => {
+      const ids = type.ids ?? resolveIds(type.name, new Set());
+      return {
+        ...type,
+        ...(ids !== undefined && ids.length > 0 ? { ids } : {}),
+        fields: resolve(type.name, new Set()),
+      };
+    }),
+  );
+};
+
+const refText = (references: NonNullable<TypeField["references"]>): string =>
+  Array.isArray(references) ? references.join(", ") : references;
+
+const scalarTarget = (
+  references: NonNullable<TypeField["references"]>,
+): [string, string] | undefined => {
+  if (Array.isArray(references)) return undefined;
+  const split = references.indexOf(".");
+  return split < 0
+    ? ["", references]
+    : [references.slice(0, split), references.slice(split + 1)];
+};
+
+const isScalarReference = (field: TypeField): boolean =>
+  field.references !== undefined && !field.isArray && !field.isMap;
+
+const copyColumnType = (field: TypeField, parent: TypeField): TypeField => ({
+  ...field,
+  type: parent.type,
+  kind: parent.kind,
+  base: parent.base,
+  ...(parent.size !== undefined ? { size: parent.size } : {}),
+});
+
+const resolveReferenceTypes = (types: Type[]): Type[] => {
+  const working = types.map((type) => ({
+    ...type,
+    fields: type.fields.map((field) => ({ ...field })),
+  }));
+  const byName = () => new Map(working.map((type) => [type.name, type]));
+  for (let pass = 0; pass < working.length; pass++) {
+    let changed = false;
+    let waiting = false;
+    const named = byName();
+    for (const type of working) {
+      type.fields = type.fields.map((field) => {
+        if (!isScalarReference(field)) return field;
+        const target = scalarTarget(field.references!);
+        if (target === undefined) {
+          if (field.type.length === 0) {
+            throw new Error(
+              `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
+            );
+          }
+          return field;
+        }
+        const parentType = named.get(target[0]);
+        if (parentType === undefined) {
+          throw new Error(
+            `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
+          );
+        }
+        const parent = parentType.fields.find((item) => item.name === target[1]);
+        if (parent === undefined) {
+          throw new Error(
+            `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
+          );
+        }
+        if (parent.type.length === 0) {
+          waiting = true;
+          return field;
+        }
+        if (field.type.length === 0) {
+          changed = true;
+          return copyColumnType(field, parent);
+        }
+        if (field.type !== parent.type) {
+          throw new Error(
+            `${type.name}.${field.name} type ${field.type} does not match ${refText(field.references!)} type ${parent.type}`,
+          );
+        }
+        return field;
+      });
+    }
+    if (!changed && !waiting) break;
+  }
+  for (const type of working) {
+    for (const field of type.fields) {
+      if (!isScalarReference(field) || field.type.length > 0) continue;
+      throw new Error(
+        `${type.name}.${field.name} references ${refText(field.references!)} has no type`,
+      );
+    }
+  }
+  return working;
 };
 
 export const typeHasTag = (type: Type, tag: string): boolean =>

@@ -349,9 +349,16 @@ class Parser {
   }
 
   #readField(name: string, node: YamlNode): TypeField {
-    const rawType = node.str("type") ?? "string";
-    const parsed = parseFieldType(rawType);
     const references = referencesOf(node);
+    const authored = node.str("type");
+    if (authored === undefined && references === undefined) {
+      throw new Error(`${name} has no type`);
+    }
+    const rawType = authored ?? "";
+    const parsed =
+      rawType.length === 0
+        ? { kind: "primitive" as const, base: "", isArray: false, isMap: false }
+        : parseFieldType(rawType);
     const size = sizeOf(node);
     const minSize = node.finiteInt("min_size");
     const collectionDefault = parsed.isArray ? [] : parsed.isMap ? {} : undefined;

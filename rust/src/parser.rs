@@ -106,8 +106,7 @@ pub fn inherits_chain(name: &str, type_by_name: &IndexMap<String, Type>) -> Vec<
 
 fn parse_types(yaml: &str) -> Result<Vec<Type>, Error> {
     let root = YamlNode::from_yaml(yaml)?;
-    Ok(root
-        .named_list("types")
+    root.named_list("types")
         .into_iter()
         .map(|entry| {
             let kind = if entry.node.str("inherits").is_some() {
@@ -126,7 +125,13 @@ fn parse_types(yaml: &str) -> Result<Vec<Type>, Error> {
             } else {
                 None
             };
-            Type {
+            let fields = entry
+                .node
+                .named_list("fields")
+                .into_iter()
+                .map(|field| read_type_field(&field.name, &field.node))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Type {
                 name: entry.name,
                 tags: entry.node.strings("tags"),
                 kind,
@@ -136,15 +141,10 @@ fn parse_types(yaml: &str) -> Result<Vec<Type>, Error> {
                 extract,
                 remove_fields,
                 ids,
-                fields: entry
-                    .node
-                    .named_list("fields")
-                    .into_iter()
-                    .map(|field| read_type_field(&field.name, &field.node))
-                    .collect(),
-            }
+                fields,
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn nonempty_strings(node: &YamlNode, key: &str) -> Option<Vec<String>> {
@@ -454,13 +454,15 @@ fn parse_services(
         selected.sort_by(|a, b| compare(&a.name, &b.name).cmp(&0));
         generics = selected
             .into_iter()
-            .map(|type_def| ServiceCandidate {
-                name: type_def.name.clone(),
-                tags: type_def.tags.clone(),
-                inherits: type_def.inherits.clone(),
-                by_fields: unique_lookup_fields(type_def, ds_by_name.get(type_def.name.as_str()).copied()),
+            .map(|type_def| {
+                Ok(ServiceCandidate {
+                    name: type_def.name.clone(),
+                    tags: type_def.tags.clone(),
+                    inherits: type_def.inherits.clone(),
+                    by_fields: unique_lookup_fields(type_def, ds_by_name.get(type_def.name.as_str()).copied())?,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, Error>>()?;
     }
     let customs = custom_entries
         .into_iter()

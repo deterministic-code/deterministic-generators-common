@@ -325,40 +325,43 @@ pub fn primary_key_column(_table: Option<&DatasourceTable>, type_def: Option<&Ty
         .unwrap_or_else(|| "id".to_string())
 }
 
-pub fn unique_lookup_fields(type_def: &Type, table: Option<&DatasourceTable>) -> Vec<ServiceByField> {
+pub fn unique_lookup_fields(type_def: &Type, table: Option<&DatasourceTable>) -> Result<Vec<ServiceByField>, Error> {
     let mut out = Vec::new();
-    let mut add = |name: &str| {
+    let mut add = |name: &str| -> Result<(), Error> {
         if out.iter().any(|entry: &ServiceByField| entry.field == name) {
-            return;
+            return Ok(());
         }
-        let field = type_def.fields.iter().find(|field| field.name == name);
-        let size = field.and_then(|field| match field.size {
+        let Some(field) = type_def.fields.iter().find(|field| field.name == name) else {
+            return Err(Error::new(format!("{}.{name} has no type", type_def.name)));
+        };
+        if field.type_name.is_empty() {
+            return Err(Error::new(format!("{}.{name} has no type", type_def.name)));
+        }
+        let size = match field.size {
             Some(FieldSize::Num(value)) => Some(value),
             _ => None,
-        });
+        };
         out.push(ServiceByField {
             field: name.to_string(),
-            type_name: field
-                .map(|field| field.type_name.clone())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "string".to_string()),
+            type_name: field.type_name.clone(),
             size,
         });
+        Ok(())
     };
     for name in identity_columns(Some(type_def)) {
-        add(&name);
+        add(&name)?;
     }
     if let Some(table) = table {
         for overlay in &table.fields {
             if overlay.is_unique == Some(true) {
-                add(&overlay.name);
+                add(&overlay.name)?;
             }
         }
         for name in &table.unique_index_fields {
-            add(name);
+            add(name)?;
         }
     }
-    out
+    Ok(out)
 }
 
 pub fn type_has_tag(type_def: &Type, tag: &str) -> bool {
@@ -590,7 +593,7 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
         None
     }
 
-    types
+    let expanded = types
         .iter()
         .map(|type_def| {
             let ids = if type_def.ids.is_some() {
@@ -605,17 +608,141 @@ pub fn expand_types(types: &[Type]) -> Result<Vec<Type>, Error> {
             expanded.fields = resolve(&type_def.name, &mut HashSet::new(), &by_name, &mut cache)?;
             Ok(expanded)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    resolve_reference_types(expanded)
 }
 
-pub fn read_type_field(name: &str, node: &YamlNode) -> TypeField {
-    let raw_type = node.str("type").unwrap_or_else(|| "string".to_string());
-    let parsed = parse_field_type(&raw_type);
+fn ref_text(references: &References) -> String {
+    match references {
+        References::One(value) => value.clone(),
+        References::Pair(left, right) => format!("{left}, {right}"),
+    }
+}
+
+fn scalar_target(references: &References) -> Option<(String, String)> {
+    match references {
+        References::One(value) => {
+            let (table, column) = value.split_once('.').unwrap_or(("", value));
+            Some((table.to_string(), column.to_string()))
+        }
+        References::Pair(_, _) => None,
+    }
+}
+
+fn is_scalar_reference(field: &TypeField) -> bool {
+    field.references.is_some() && !field.is_array && !field.is_map
+}
+
+fn copy_column_type(field: &TypeField, parent: &TypeField) -> TypeField {
+    let mut copied = field.clone();
+    copied.type_name = parent.type_name.clone();
+    copied.kind = parent.kind;
+    copied.base = parent.base.clone();
+    if parent.size.is_some() {
+        copied.size = parent.size.clone();
+    }
+    copied
+}
+
+fn resolve_reference_types(mut types: Vec<Type>) -> Result<Vec<Type>, Error> {
+    for _ in 0..types.len() {
+        let mut changed = false;
+        let mut waiting = false;
+        for index in 0..types.len() {
+            for field_index in 0..types[index].fields.len() {
+                if !is_scalar_reference(&types[index].fields[field_index]) {
+                    continue;
+                }
+                let Some(references) = types[index].fields[field_index].references.clone() else {
+                    continue;
+                };
+                let Some((table, column)) = scalar_target(&references) else {
+                    if types[index].fields[field_index].type_name.is_empty() {
+                        return Err(Error::new(format!(
+                            "{}.{} references {} has no type",
+                            types[index].name,
+                            types[index].fields[field_index].name,
+                            ref_text(&references)
+                        )));
+                    }
+                    continue;
+                };
+                let parent = types
+                    .iter()
+                    .find(|item| item.name == table)
+                    .and_then(|item| item.fields.iter().find(|field| field.name == column))
+                    .cloned();
+                let Some(parent) = parent else {
+                    return Err(Error::new(format!(
+                        "{}.{} references {} has no type",
+                        types[index].name,
+                        types[index].fields[field_index].name,
+                        ref_text(&references)
+                    )));
+                };
+                if parent.type_name.is_empty() {
+                    waiting = true;
+                    continue;
+                }
+                let field_type = types[index].fields[field_index].type_name.clone();
+                if field_type.is_empty() {
+                    types[index].fields[field_index] =
+                        copy_column_type(&types[index].fields[field_index], &parent);
+                    changed = true;
+                    continue;
+                }
+                if field_type != parent.type_name {
+                    return Err(Error::new(format!(
+                        "{}.{} type {field_type} does not match {} type {}",
+                        types[index].name,
+                        types[index].fields[field_index].name,
+                        ref_text(&references),
+                        parent.type_name
+                    )));
+                }
+            }
+        }
+        if !changed && !waiting {
+            break;
+        }
+    }
+    for type_def in &types {
+        for field in &type_def.fields {
+            if !is_scalar_reference(field) || !field.type_name.is_empty() {
+                continue;
+            }
+            return Err(Error::new(format!(
+                "{}.{} references {} has no type",
+                type_def.name,
+                field.name,
+                ref_text(field.references.as_ref().unwrap())
+            )));
+        }
+    }
+    Ok(types)
+}
+
+pub fn read_type_field(name: &str, node: &YamlNode) -> Result<TypeField, Error> {
     let references = references_of(node);
+    let authored = node.str("type");
+    if authored.is_none() && references.is_none() {
+        return Err(Error::new(format!("{name} has no type")));
+    }
+    let raw_type = authored.unwrap_or_default();
+    let parsed = if raw_type.is_empty() {
+        ParsedFieldType {
+            kind: FieldKind::Primitive,
+            base: String::new(),
+            is_array: false,
+            is_map: false,
+        }
+    } else {
+        parse_field_type(&raw_type)
+    };
     let size = size_of(node);
     let min_size = node.finite_int("min_size");
-    let authored = node.has("default_value");
-    let default_value = if authored {
+    let has_default = node.has("default_value");
+    let default_value = if has_default {
         node.literal("default_value")
     } else if parsed.is_array {
         Some(YamlLiteral::EmptyArray)
@@ -624,7 +751,7 @@ pub fn read_type_field(name: &str, node: &YamlNode) -> TypeField {
     } else {
         None
     };
-    TypeField {
+    Ok(TypeField {
         name: name.to_string(),
         type_name: raw_type,
         kind: parsed.kind,
@@ -636,9 +763,9 @@ pub fn read_type_field(name: &str, node: &YamlNode) -> TypeField {
         size,
         min_size,
         references,
-        has_default: authored || default_value.is_some(),
+        has_default: has_default || default_value.is_some(),
         default_value,
-    }
+    })
 }
 
 fn references_of(node: &YamlNode) -> Option<References> {

@@ -200,7 +200,7 @@ describe("specification helpers", () => {
     );
   });
 
-  it("skips a duplicate lookup field and defaults type when the field is missing", () => {
+  it("throws when a unique overlay names a field that has no type", () => {
     const type = shaped("user", [
       {
         name: "email",
@@ -212,20 +212,18 @@ describe("specification helpers", () => {
         size: 256,
       },
     ]);
-    assert.deepEqual(
-      uniqueLookupFields(type, {
-        name: "user",
-        fields: [
-          { name: "email", isUnique: true },
-          { name: "missing", isUnique: true },
-        ],
-        indexes: [],
-        uniqueIndexFields: ["email"],
-      }),
-      [
-        { field: "email", type: "string", size: 256 },
-        { field: "missing", type: "string" },
-      ],
+    assert.throws(
+      () =>
+        uniqueLookupFields(type, {
+          name: "user",
+          fields: [
+            { name: "email", isUnique: true },
+            { name: "missing", isUnique: true },
+          ],
+          indexes: [],
+          uniqueIndexFields: ["email"],
+        }),
+      /user.missing has no type/,
     );
   });
 
@@ -731,56 +729,136 @@ describe("specification helpers", () => {
     );
   });
 
-  it("keeps a dictionary FK that is not the owner identity", () => {
+  it("copies an omitted reference type through two inherited parents", () => {
     const field = (
       name: string,
       extras: Partial<Type["fields"][number]> = {},
     ): Type["fields"][number] => ({
       name,
-      type: extras.type ?? "string",
+      type: extras.type ?? "",
       kind: "primitive",
-      base: extras.base ?? extras.type ?? "string",
+      base: extras.base ?? extras.type ?? "",
       isArray: false,
       isNullable: false,
       ...extras,
     });
     const expanded = expandTypes([
-      shaped("note", [field("body")]),
-      shaped("orphan", [], { kind: "inherit", inherits: "ghost" }),
-      shaped(
-        "settings",
-        [
-          field("note_body", { references: "note.body" }),
-          field("bare", { references: "id" }),
-          field("self_id", { references: "settings.key" }),
-          field("ghost_id", { references: "ghost.id" }),
-          field("orphan_id", { references: "orphan.id" }),
-          field("mixed", { references: ["note.body", "orphan.id"] }),
-          field("key"),
-          field("value"),
-        ],
-        { kind: "inherit", inherits: "dictionary" },
-      ),
-      shaped("note_view", [], {
-        kind: "inherit",
-        inherits: "note",
-        union: ["settings"],
-        tags: ["view_type"],
-      }),
+      shaped("base", [
+        field("id", { type: "integer", base: "integer", isId: true }),
+      ]),
+      shaped("contact_base", [], { kind: "inherit", inherits: "base" }),
+      shaped("contact", [], { kind: "inherit", inherits: "contact_base" }),
+      shaped("address_base", [
+        field("contact_id", { references: "contact.id" }),
+      ]),
     ]);
-    assert.deepEqual(
-      expanded.find((t) => t.name === "note_view")?.fields.map((f) => f.name),
-      [
-        "body",
-        "note_body",
-        "bare",
-        "self_id",
-        "ghost_id",
-        "orphan_id",
-        "mixed",
-        "key",
-        "value",
-      ],
+    const contactId = expanded
+      .find((t) => t.name === "address_base")
+      ?.fields.find((f) => f.name === "contact_id");
+    assert.equal(contactId?.type, "integer");
+    assert.equal(contactId?.base, "integer");
+    assert.throws(
+      () =>
+        expandTypes([
+          shaped("base", [
+            field("id", { type: "integer", base: "integer", isId: true }),
+          ]),
+          shaped("contact_base", [], { kind: "inherit", inherits: "base" }),
+          shaped("contact", [], { kind: "inherit", inherits: "contact_base" }),
+          shaped("address_base", [
+            field("contact_id", {
+              type: "string",
+              base: "string",
+              references: "contact.id",
+            }),
+          ]),
+        ]),
+      /address_base.contact_id type string does not match contact.id type integer/,
+    );
+  });
+
+  it("copies an omitted reference type from the parent column", () => {
+    const id = (
+      name: string,
+      extras: Partial<Type["fields"][number]> = {},
+    ): Type["fields"][number] => ({
+      name,
+      type: extras.type ?? "",
+      kind: "primitive",
+      base: extras.base ?? extras.type ?? "",
+      isArray: false,
+      isNullable: false,
+      ...extras,
+    });
+    const expanded = expandTypes([
+      shaped("base", [
+        id("id", { type: "integer", base: "integer", isId: true }),
+      ]),
+      shaped("contact_base", [], { kind: "inherit", inherits: "base" }),
+      shaped("address_base", [
+        id("contact_id", { references: "contact_base.id" }),
+      ]),
+    ]);
+    const contactId = expanded
+      .find((t) => t.name === "address_base")
+      ?.fields.find((f) => f.name === "contact_id");
+    assert.equal(contactId?.type, "integer");
+    assert.equal(contactId?.base, "integer");
+  });
+
+  it("throws when an authored reference type does not match the parent", () => {
+    const field = (
+      name: string,
+      extras: Partial<Type["fields"][number]> = {},
+    ): Type["fields"][number] => ({
+      name,
+      type: extras.type ?? "",
+      kind: "primitive",
+      base: extras.base ?? extras.type ?? "",
+      isArray: false,
+      isNullable: false,
+      ...extras,
+    });
+    assert.throws(
+      () =>
+        expandTypes([
+          shaped("base", [
+            field("id", { type: "integer", base: "integer", isId: true }),
+          ]),
+          shaped("contact_base", [], { kind: "inherit", inherits: "base" }),
+          shaped("address_base", [
+            field("contact_id", {
+              type: "string",
+              base: "string",
+              references: "contact_base.id",
+            }),
+          ]),
+        ]),
+      /address_base.contact_id type string does not match contact_base.id type integer/,
+    );
+  });
+
+  it("throws when a reference parent column cannot be found", () => {
+    const field = (
+      name: string,
+      extras: Partial<Type["fields"][number]> = {},
+    ): Type["fields"][number] => ({
+      name,
+      type: extras.type ?? "",
+      kind: "primitive",
+      base: extras.base ?? extras.type ?? "",
+      isArray: false,
+      isNullable: false,
+      ...extras,
+    });
+    assert.throws(
+      () =>
+        expandTypes([
+          shaped("address_base", [
+            field("ghost_id", { references: "ghost.id" }),
+          ]),
+        ]),
+      /address_base.ghost_id references ghost.id has no type/,
     );
   });
 

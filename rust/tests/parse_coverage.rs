@@ -114,7 +114,7 @@ fn empty_documents_seeds_and_identity_lookups() {
         use_optimistic_concurrency: None,
     };
     assert_eq!(
-        unique_lookup_fields(&user, Some(&table)).into_iter().map(|item| item.field).collect::<Vec<_>>(),
+        unique_lookup_fields(&user, Some(&table)).unwrap().into_iter().map(|item| item.field).collect::<Vec<_>>(),
         vec!["code".to_string()]
     );
 }

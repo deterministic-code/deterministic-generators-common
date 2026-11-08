@@ -225,13 +225,24 @@ includes:
             new TypeModel { Name = "b", Kind = "inherit", Inherits = "a", Tags = [], Fields = [] },
         ]));
 
-        var withIds = new TypeModel { Name = "user", Kind = "shaped", Tags = [], Ids = ["email"], Fields = [] };
+        var withIds = new TypeModel
+        {
+            Name = "user",
+            Kind = "shaped",
+            Tags = [],
+            Ids = ["email"],
+            Fields = [new TypeField { Name = "email", Type = "string", Kind = "scalar", Base = "string" }],
+        };
         var withMark = new TypeModel
         {
             Name = "user",
             Kind = "shaped",
             Tags = [],
-            Fields = [new TypeField { Name = "email", Type = "string", Kind = "scalar", Base = "string", IsId = true, HasSize = true, Size = 8 }],
+            Fields =
+            [
+                new TypeField { Name = "email", Type = "string", Kind = "scalar", Base = "string", IsId = true, HasSize = true, Size = 8 },
+                new TypeField { Name = "code", Type = "string", Kind = "scalar", Base = "string" },
+            ],
         };
         Assert.Equal("email", Specification.PrimaryKeyColumn(null, withIds));
         Assert.Equal("id", Specification.PrimaryKeyColumn(null, null));
@@ -244,6 +255,58 @@ includes:
         Assert.NotEmpty(Specification.UniqueLookupFields(withIds, null));
         Assert.True(Specification.HasAuthoredIdentity(withIds));
         Assert.False(Specification.HasAuthoredIdentity(new TypeModel { Name = "x", Kind = "shaped", Tags = [], Fields = [] }));
+
+        var copied = Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer", IsId = true }],
+            },
+            new TypeModel { Name = "contact_base", Kind = "inherit", Inherits = "base", Tags = [], Fields = [] },
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "contact_id", Type = "", Kind = "primitive", Base = "", References = "contact_base.id" }],
+            },
+        ]);
+        Assert.Equal("integer", copied.Single(type => type.Name == "address_base").Fields.Single(field => field.Name == "contact_id").Type);
+
+        var mismatch = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "id", Type = "integer", Kind = "primitive", Base = "integer", IsId = true }],
+            },
+            new TypeModel { Name = "contact_base", Kind = "inherit", Inherits = "base", Tags = [], Fields = [] },
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "contact_id", Type = "string", Kind = "primitive", Base = "string", References = "contact_base.id" }],
+            },
+        ]));
+        Assert.Contains("address_base.contact_id type string does not match contact_base.id type integer", mismatch.Message);
+
+        var missing = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            new TypeModel
+            {
+                Name = "address_base",
+                Kind = "shaped",
+                Tags = [],
+                Fields = [new TypeField { Name = "ghost_id", Type = "", Kind = "primitive", Base = "", References = "ghost.id" }],
+            },
+        ]));
+        Assert.Contains("address_base.ghost_id references ghost.id has no type", missing.Message);
     }
 
     [Fact]

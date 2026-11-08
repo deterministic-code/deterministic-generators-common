@@ -178,6 +178,29 @@ public class SweepTests
     }
 
     [Fact]
+    public void Expand_copies_reference_type_through_two_inherited_parents()
+    {
+        var expanded = Specification.ExpandTypes(
+        [
+            Type("base", fields: [Field("id", "integer", isId: true)]),
+            Type("contact_base", "base"),
+            Type("contact", "contact_base"),
+            Type("address_base", fields: [Field("contact_id", "", references: "contact.id")]),
+        ]);
+        var contactId = expanded.Single(type => type.Name == "address_base").Fields.Single(field => field.Name == "contact_id");
+        Assert.Equal("integer", contactId.Type);
+        Assert.Equal("integer", contactId.Base);
+        var mismatch = Assert.Throws<InvalidOperationException>(() => Specification.ExpandTypes(
+        [
+            Type("base", fields: [Field("id", "integer", isId: true)]),
+            Type("contact_base", "base"),
+            Type("contact", "contact_base"),
+            Type("address_base", fields: [Field("contact_id", "string", references: "contact.id")]),
+        ]));
+        Assert.Contains("address_base.contact_id type string does not match contact.id type integer", mismatch.Message);
+    }
+
+    [Fact]
     public void Expand_identity_references()
     {
         var expanded = Specification.ExpandTypes(
@@ -191,7 +214,7 @@ public class SweepTests
                 Field("owner_id", "integer", references: new[] { "owner.id" }),
                 Field("list_ref", "integer", references: new List<string> { "owner.id" }),
                 Field("bad", "integer", references: 5),
-                Field("bare", "integer", references: "id"),
+                Field("bare", "integer", references: "owner.id"),
             ]),
             Type("holder", "prefs", extract: ["prefs.key", "bare"], mapping: new Dictionary<string, string> { ["key"] = "setting_key", ["prefs.value"] = "setting_value" }, remove: ["bad"]),
             Type("empty_id", "missing_parent"),

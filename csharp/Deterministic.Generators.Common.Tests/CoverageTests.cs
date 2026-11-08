@@ -450,7 +450,8 @@ public class CoverageTests
     public void Identity_trees_pluralize_and_yaml_helpers()
     {
         var field = new TypeField { Name = "email", Type = "string", Kind = "primitive", Base = "string", IsId = true, HasSize = true, Size = 16L };
-        var shaped = new TypeModel { Name = "user", Kind = "shaped", Fields = [field] };
+        var code = new TypeField { Name = "code", Type = "string", Kind = "primitive", Base = "string" };
+        var shaped = new TypeModel { Name = "user", Kind = "shaped", Fields = [field, code] };
         var set = new TypeModel { Name = "row", Kind = "inherit", Inherits = "set" };
         Assert.Equal(["email"], Specification.IdentityColumns(shaped));
         Assert.Equal(["id"], Specification.IdentityColumns(null));
