@@ -45,15 +45,11 @@ public static class Specification
         if (type is null) return ["id"];
         if (type.Ids is { Count: > 0 }) return [.. type.Ids];
         var marked = type.Fields.Where(f => f.IsId == true).Select(f => f.Name).ToList();
-        if (marked.Count > 0) return marked;
-        return type.Inherits == "set" ? ["id"] : [];
+        return marked.Count > 0 ? marked : type.Inherits == "set" ? ["id"] : [];
     }
 
-    public static string PrimaryKeyColumn(DatasourceTable? table, TypeModel? type = null)
-    {
-        _ = table;
-        return IdentityColumns(type).FirstOrDefault() ?? "id";
-    }
+    public static string PrimaryKeyColumn(DatasourceTable? _table, TypeModel? type = null) =>
+        IdentityColumns(type).FirstOrDefault() ?? "id";
 
     public static List<ServiceByField> UniqueLookupFields(TypeModel type, DatasourceTable? table = null)
     {
@@ -73,10 +69,7 @@ public static class Specification
             });
         }
         foreach (var name in IdentityColumns(type)) Add(name);
-        foreach (var overlay in table?.Fields ?? [])
-        {
-            if (overlay.IsUnique == true) Add(overlay.Name);
-        }
+        foreach (var overlay in table?.Fields ?? []) if (overlay.IsUnique == true) Add(overlay.Name);
         foreach (var name in table?.UniqueIndexFields ?? []) Add(name);
         return result;
     }
@@ -106,16 +99,15 @@ public static class Specification
             foreach (var member in type.Union ?? []) inherited.AddRange(Compose(member));
             stack.Remove(name);
             var merged = KeepFields(RenameFields(ExtractFields(inherited, type.Extract), type.Mapping), type.RemoveFields);
-            foreach (var field in type.Fields)
-                merged.Add(SourcedField.From(field, name, field.Name));
+            merged.AddRange(type.Fields.Select(field => new SourcedField(field, name, field.Name)));
             AssertUnique(merged, name);
-            var result = merged.Select(f => f.ToField()).ToList();
+            var result = merged.Select(f => f.Field).ToList();
             cache[name] = result;
             return result;
 
             List<SourcedField> Compose(string source)
             {
-                var fields = Resolve(source, stack).Select(f => SourcedField.From(f, source, f.Name)).ToList();
+                var fields = Resolve(source, stack).Select(f => new SourcedField(f, source, f.Name)).ToList();
                 if (byName.TryGetValue(source, out var src) && src.Inherits == "dictionary")
                     fields = fields.Where(f => !IsOwnerIdentityRef(f.References, src.Name, byName)).ToList();
                 return fields;
@@ -141,16 +133,8 @@ public static class Specification
         return ResolveReferenceTypes(types.Select(type =>
         {
             var ids = type.Ids ?? ResolveIds(type.Name, []);
-            return new TypeModel
+            return type with
             {
-                Name = type.Name,
-                Tags = type.Tags,
-                Kind = type.Kind,
-                Inherits = type.Inherits,
-                Union = type.Union,
-                Mapping = type.Mapping,
-                Extract = type.Extract,
-                RemoveFields = type.RemoveFields,
                 Ids = ids is { Count: > 0 } ? [.. ids] : null,
                 Fields = Resolve(type.Name, []),
             };
@@ -199,18 +183,14 @@ public static class Specification
                 {
                     var parent = ColumnType(item, byName, type, field, new(StringComparer.Ordinal));
                     if (field.IsArray || field.IsMap) continue;
-                    if (field.Type.Length == 0 || field.Type == "reference")
+                    if (field.Type is "" or "reference")
                     {
                         var parsed = ParseFieldType(parent);
-                        field.Type = parent;
-                        field.Kind = parsed.Kind;
-                        field.Base = parsed.Base;
+                        (field.Type, field.Kind, field.Base) = (parent, parsed.Kind, parsed.Base);
                     }
                     else if (field.Type != parent)
-                    {
                         throw new InvalidOperationException(
                             $"{type.Name}.{field.Name} type {field.Type} does not match {item} type {parent}");
-                    }
                 }
             }
         }
@@ -244,11 +224,7 @@ public static class Specification
         if (references is null) return false;
         var raw = RefValues(references);
         if (raw.Count == 0) return false;
-        var parts = raw.Select(reference =>
-        {
-            var split = SplitDot(reference);
-            return split is null ? ("", reference) : (split.Value.Left, split.Value.Right);
-        }).ToList();
+        var parts = raw.Select(reference => SplitDot(reference) ?? ("", reference)).ToList();
         var owner = parts[0].Item1;
         if (owner.Length == 0 || owner == selfName) return false;
         byName.TryGetValue(owner, out var ownerType);
@@ -265,10 +241,7 @@ public static class Specification
             var split = SplitDot(item);
             if (split is null) continue;
             if (!allow.TryGetValue(split.Value.Left, out var set))
-            {
-                set = new HashSet<string>(StringComparer.Ordinal);
-                allow[split.Value.Left] = set;
-            }
+                allow[split.Value.Left] = set = new(StringComparer.Ordinal);
             set.Add(split.Value.Right);
         }
         return fields.Where(f =>
@@ -316,43 +289,10 @@ public static class Specification
         })).ToList();
     }
 
-    private sealed record SourcedField
+    private sealed record SourcedField(TypeField Field, string? Source, string Original)
     {
-        public required TypeField Field { get; init; }
-        public string? Source { get; init; }
-        public required string Original { get; init; }
         public string Name => Field.Name;
         public object? References => Field.References;
-
-        public static SourcedField From(TypeField field, string source, string original) =>
-            new() { Field = field, Source = source, Original = original };
-
-        public SourcedField Renamed(string name) => new()
-        {
-            Field = Named(Field, name),
-            Source = Source,
-            Original = Original,
-        };
-
-        public TypeField ToField() => Field;
-
-        private static TypeField Named(TypeField field, string name) => new()
-        {
-            Name = name,
-            Type = field.Type,
-            Kind = field.Kind,
-            Base = field.Base,
-            IsArray = field.IsArray,
-            IsMap = field.IsMap,
-            IsNullable = field.IsNullable,
-            IsId = field.IsId,
-            Size = field.Size,
-            HasSize = field.HasSize,
-            MinSize = field.MinSize,
-            References = field.References,
-            HasDefault = field.HasDefault,
-            DefaultValue = field.DefaultValue,
-            DefaultIsLiteral = field.DefaultIsLiteral,
-        };
+        public SourcedField Renamed(string name) => this with { Field = Field with { Name = name } };
     }
 }
