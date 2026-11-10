@@ -406,6 +406,58 @@ function seedsLoc(path: string): Mut | null {
       return { host: SEEDS_ONE, loc: ["seeds", 0, "user", 0, "id1", "n"] };
     return { host: SEEDS_ONE, loc: ["seeds", 0, "user", 0, "id1"] };
   }
+  if (path === "#/properties/includes")
+    return {
+      host: { ...SEEDS_MIN, includes: [{ file: "x.yaml" }] },
+      loc: ["includes"],
+    };
+  if (
+    path.includes("fileInclude") ||
+    path.includes("/idInclude") ||
+    path.includes("uuidInclude") ||
+    path.includes("userNameInclude") ||
+    path.includes("includeEntry")
+  ) {
+    if (path.includes("/idInclude"))
+      return {
+        host: { ...SEEDS_MIN, includes: [{ id: "saved" }] },
+        loc: path.includes("properties/id") ? ["includes", 0, "id"] : ["includes", 0],
+      };
+    if (path.includes("uuidInclude"))
+      return {
+        host: { ...SEEDS_MIN, includes: [{ uuid: "abc" }] },
+        loc: path.includes("properties/uuid") ? ["includes", 0, "uuid"] : ["includes", 0],
+      };
+    if (path.includes("userNameInclude"))
+      return {
+        host: { ...SEEDS_MIN, includes: [{ user_id: 1, name: "app" }] },
+        loc: path.includes("properties/name")
+          ? ["includes", 0, "name"]
+          : path.includes("properties/user_id")
+            ? ["includes", 0, "user_id"]
+            : ["includes", 0],
+      };
+    return {
+      host: { ...SEEDS_MIN, includes: [{ file: "x.yaml" }] },
+      loc: path.includes("properties/file") ? ["includes", 0, "file"] : ["includes", 0],
+    };
+  }
+  if (path.includes("sideOptions") || path.includes("combineOptions")) {
+    const host: Host = {
+      ...SEEDS_MIN,
+      includes: [
+        {
+          file: "x.yaml",
+          combine_options: { source: { remove_types: ["old"] } },
+        },
+      ],
+    };
+    if (path.includes("remove_types"))
+      return { host, loc: ["includes", 0, "combine_options", "source", "remove_types"] };
+    if (path.includes("combineOptions"))
+      return { host, loc: ["includes", 0, "combine_options"] };
+    return { host, loc: ["includes", 0, "combine_options", "source"] };
+  }
   if (path.startsWith("#/properties/version"))
     return { host: SEEDS_MIN, loc: ["version"] };
   return null;

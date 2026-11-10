@@ -1,6 +1,7 @@
 import { SpecValidator, type ParsedYaml } from "../SpecValidator.ts";
 import type { SpecValidationResult, ValidateOptions } from "../types.ts";
 import { parseYamlWithPositions } from "../yamlPositions.ts";
+import { checkIncludeCycles, withIncludeFilePath } from "../includeSemantics.ts";
 import {
   checkSeedSemantics,
   companionError,
@@ -57,9 +58,17 @@ async function checkSeeds(
   );
 }
 
+async function withSeedFile(
+  path: string,
+  options?: ValidateOptions,
+): Promise<ValidateOptions> {
+  return withSiblingCompanions(path, withIncludeFilePath(path, options));
+}
+
 /**
  * Live engine for `datasource_seeds.yaml`: JSON Schema first, then
- * semantic checks against companion `types.yaml` and `datasource.yaml`.
+ * semantic checks against companion `types.yaml` and `datasource.yaml`,
+ * then `file:` include cycles.
  */
 export class DatasourceSeedsValidator extends SpecValidator {
   constructor() {
@@ -68,8 +77,8 @@ export class DatasourceSeedsValidator extends SpecValidator {
         subdir: "backend",
         name: "datasource-seeds.spec.yaml",
       },
-      checkSeeds,
-      withSiblingCompanions,
+      [checkSeeds, checkIncludeCycles],
+      withSeedFile,
     );
   }
 }

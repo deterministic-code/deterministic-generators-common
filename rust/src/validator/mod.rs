@@ -79,7 +79,7 @@ fn datasource_file_options(path: &str, options: &ValidateOptions) -> ValidateOpt
 }
 
 fn seeds_file_options(path: &str, options: &ValidateOptions) -> ValidateOptions {
-    with_sibling_companions(path, options)
+    with_sibling_companions(path, &with_include_file_path(path, options))
 }
 
 impl Default for TypesValidator {
@@ -115,7 +115,7 @@ impl DatasourceSeedsValidator {
     pub fn new() -> Self {
         Self(
             SpecValidator::from_ref("backend", "datasource-seeds.spec.yaml")
-                .with_after(vec![boxed(check_seeds)])
+                .with_after(vec![boxed(check_seeds), boxed(check_include_cycles)])
                 .with_file_options(Box::new(seeds_file_options)),
         )
     }
