@@ -2,6 +2,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test resolveIncludes.test.ts"
+    "test": "node --experimental-strip-types --test ./*.test.ts"
   }
 }

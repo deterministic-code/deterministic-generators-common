@@ -496,6 +496,15 @@ public class BehaviorTests
                   filter: type == user
             """);
         Assert.Contains(badFilter.Errors, error => error.Message.Contains("invalid include filter:"));
+
+        var seeds = Path.Combine(dir, "datasource_seeds.yaml");
+        await File.WriteAllTextAsync(seeds, "version: 1.0.0\nseeds: []\nincludes:\n  - file: datasource_seeds.yaml\n");
+        var seedCycle = await new DatasourceSeedsValidator().ValidateFile(seeds);
+        Assert.Contains(seedCycle.Errors, error => error.Message.Contains("circular include:"));
+        await File.WriteAllTextAsync(Path.Combine(dir, "base.yaml"), "version: 1.0.0\nseeds: []\n");
+        await File.WriteAllTextAsync(seeds, "version: 1.0.0\nseeds: []\nincludes:\n  - file: base.yaml\n");
+        var seedOk = await new DatasourceSeedsValidator().ValidateFile(seeds);
+        Assert.True(seedOk.Valid, string.Join("; ", seedOk.Errors.Select(error => error.Message)));
         Directory.Delete(dir, true);
     }
 }

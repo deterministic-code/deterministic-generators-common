@@ -240,6 +240,15 @@ fn include_cycles_and_missing_files() {
     fs::write(dir.path().join("types.yaml"), "version: 1.0.0\ntypes: []\nincludes:\n  - file: bad.yaml\n").unwrap();
     let result = TypesValidator::new().validate_file(dir.path().join("types.yaml").to_str().unwrap()).unwrap();
     assert!(result.errors.iter().any(|e| e.message.contains("not valid YAML") || e.message.contains("include")));
+
+    let seeds = dir.path().join("datasource_seeds.yaml");
+    fs::write(&seeds, "version: 1.0.0\nseeds: []\nincludes:\n  - file: datasource_seeds.yaml\n").unwrap();
+    let result = DatasourceSeedsValidator::new().validate_file(seeds.to_str().unwrap()).unwrap();
+    assert!(result.errors.iter().any(|e| e.message.contains("circular include")), "{:?}", result.errors);
+    fs::write(dir.path().join("base.yaml"), "version: 1.0.0\nseeds: []\n").unwrap();
+    fs::write(&seeds, "version: 1.0.0\nseeds: []\nincludes:\n  - file: base.yaml\n").unwrap();
+    let result = DatasourceSeedsValidator::new().validate_file(seeds.to_str().unwrap()).unwrap();
+    assert!(result.valid, "{:?}", result.errors);
 }
 
 #[test]

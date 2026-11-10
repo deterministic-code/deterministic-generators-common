@@ -149,10 +149,13 @@ public sealed class DatasourceSeedsValidator : SpecValidator
 {
     public DatasourceSeedsValidator() : base(
         new SpecRef("backend", "datasource-seeds.spec.yaml"),
-        [SeedSemantics.CheckSeeds],
-        SeedSemantics.WithSiblingCompanions)
+        [SeedSemantics.CheckSeeds, IncludeCycles.Check],
+        WithSeedFile)
     {
     }
+
+    static async Task<ValidateOptions?> WithSeedFile(string path, ValidateOptions? options)
+        => await SeedSemantics.WithSiblingCompanions(path, await IncludeCycles.WithIncludeFilePath(path, options));
 }
 
 public sealed class RoutesValidator : SpecValidator

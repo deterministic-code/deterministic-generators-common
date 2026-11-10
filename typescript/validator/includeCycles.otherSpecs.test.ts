@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  DatasourceSeedsValidator,
   RoutesValidator,
   ServicesValidator,
   TypesValidator,
@@ -20,7 +21,7 @@ async function withDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-describe("file: include cycles on types, routes, and services", () => {
+describe("file: include cycles on types, routes, services, and seeds", () => {
   test("TypesValidator validateFile rejects a circular include", async () => {
     await withDir(async (dir) => {
       const path = join(dir, "types.yaml");
@@ -75,6 +76,46 @@ services: []
       expect((await new ServicesValidator().validateFile(path)).valid).toBe(
         true,
       );
+    });
+  });
+
+  test("DatasourceSeedsValidator validateFile rejects a circular include", async () => {
+    await withDir(async (dir) => {
+      const path = join(dir, "datasource_seeds.yaml");
+      await writeFile(
+        path,
+        `version: 1.0.0
+includes:
+  - file: datasource_seeds.yaml
+seeds: []
+`,
+      );
+      const result = await new DatasourceSeedsValidator().validateFile(path);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]?.message).toMatch(/circular include:/);
+    });
+  });
+
+  test("DatasourceSeedsValidator validateFile accepts a real seed include", async () => {
+    await withDir(async (dir) => {
+      await writeFile(
+        join(dir, "base.yaml"),
+        `version: 1.0.0
+seeds: []
+`,
+      );
+      const path = join(dir, "datasource_seeds.yaml");
+      await writeFile(
+        path,
+        `version: 1.0.0
+includes:
+  - file: base.yaml
+seeds: []
+`,
+      );
+      expect(
+        (await new DatasourceSeedsValidator().validateFile(path)).valid,
+      ).toBe(true);
     });
   });
 
