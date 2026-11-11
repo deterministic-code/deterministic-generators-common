@@ -2,12 +2,14 @@ import { parse, stringify } from "yaml";
 import { combineDatasourceSeeds } from "./datasource-seeds-combine.ts";
 import { emptyReport, mergeReports } from "./types-combine-core.ts";
 import type { FlatCombineOptions } from "./types-combine-core.ts";
+import { includeGraph, takeIncludeEdge } from "./include-graph.ts";
 
 type CombineReport = ReturnType<typeof emptyReport>;
 
 interface ResolveCtx {
   baseDir?: string;
   visited?: Set<string>;
+  loaded?: Map<string, unknown>;
 }
 
 interface SeedInclude {
@@ -51,11 +53,14 @@ function withoutIncludes(doc: SeedDoc): SeedDoc {
  * seeds come last.
  *
  * `load(include, ctx)` is injected — it returns `{ text, key, ctx }` for the
- * referenced config (file read, HTTP, DB, …). `key` identifies the target for
- * cycle detection; the returned `ctx` is passed to the nested resolution so
- * relative paths rebase correctly. Seed `ctx.visited` to catch cycles back to
- * the root. Pure aside from the injected loader; collisions and unknown
- * `remove_types` targets throw via `combineDatasourceSeeds`.
+ * referenced config (file read, HTTP, DB, …). `key` is the include identity:
+ * a path already on `ctx.visited` (the ancestor stack) is a cycle; a path
+ * already in the graph-wide `ctx.loaded` map is skipped when this edge's
+ * `combine_options` deep-equal the first load (missing and `{}` are the same)
+ * and throws when they differ. The returned `ctx` is passed to the nested
+ * resolution so relative paths rebase correctly. Seed `ctx.visited` to catch
+ * cycles back to the root. Pure aside from the injected loader; collisions
+ * and unknown `remove_types` targets throw via `combineDatasourceSeeds`.
  */
 export async function resolveSeedIncludes(
   rootYaml: string,
@@ -68,18 +73,24 @@ export async function resolveSeedIncludes(
     return { yaml: rootYaml, report: emptyReport() };
   }
 
-  const visited = ctx.visited ?? new Set<string>();
+  const { visited, loaded: loadedKeys } = includeGraph(ctx);
   const reports: CombineReport[] = [];
   let accYaml = stringify(withoutIncludes(doc));
 
   for (const include of [...includes].reverse()) {
     const loaded = await load(include, ctx);
-    if (visited.has(loaded.key)) {
-      throw new Error(`include cycle detected at '${loaded.key}'`);
+    if (
+      takeIncludeEdge(loaded.key, include.combine_options, {
+        visited,
+        loaded: loadedKeys,
+      }) === "skip"
+    ) {
+      continue;
     }
     const child = await resolveSeedIncludes(loaded.text, load, {
       ...loaded.ctx,
       visited: new Set(visited).add(loaded.key),
+      loaded: loadedKeys,
     });
     reports.push(child.report);
     const combined = combineDatasourceSeeds(

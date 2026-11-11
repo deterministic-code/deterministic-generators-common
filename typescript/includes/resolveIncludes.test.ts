@@ -9,6 +9,21 @@ const loadText = (text: string, key: string) => async () => ({
   ctx: {},
 });
 
+const loadFiles =
+  (files: Record<string, string>) =>
+  async (include: { file?: string }) => {
+    const key = include.file ?? "";
+    const text = files[key];
+    if (text === undefined) throw new Error(`missing ${key}`);
+    return { text, key, ctx: {} };
+  };
+
+const typeDoc = (name: string) =>
+  `version: 1.0.0\ntypes:\n  - ${name}:\n      fields: []\n`;
+
+const seedDoc = (name: string) =>
+  `version: 1.0.0\nseeds:\n  - ${name}:\n      - id1:\n          x: 1\n`;
+
 describe("resolveIncludes", () => {
   it("returns the document when includes is empty", async () => {
     const yaml = "types:\n  - user:\n      fields: []\n";
@@ -26,6 +41,77 @@ describe("resolveIncludes", () => {
     assert.match(result.yaml, /user:/);
     assert.match(result.yaml, /extra:/);
     assert.ok(result.yaml.indexOf("user:") < result.yaml.indexOf("extra:"));
+  });
+
+  it("folds a diamond include to one copy", async () => {
+    const result = await resolveIncludes(
+      "includes:\n  - file: base.yaml\n  - file: lookups.yaml\ntypes:\n  - extra:\n      fields: []\n",
+      loadFiles({
+        "base.yaml": typeDoc("base"),
+        "lookups.yaml":
+          "includes:\n  - file: base.yaml\ntypes:\n  - lookup:\n      fields: []\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /lookup:/);
+    assert.match(result.yaml, /extra:/);
+    assert.ok(result.yaml.indexOf("base:") < result.yaml.indexOf("lookup:"));
+    assert.ok(result.yaml.indexOf("lookup:") < result.yaml.indexOf("extra:"));
+  });
+
+  it("skips a second include of the same path when combine_options is {}", async () => {
+    const result = await resolveIncludes(
+      "includes:\n  - file: base.yaml\n    combine_options: {}\n  - file: child.yaml\ntypes: []\n",
+      loadFiles({
+        "base.yaml": typeDoc("base"),
+        "child.yaml":
+          "includes:\n  - file: base.yaml\ntypes:\n  - child:\n      fields: []\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+  });
+
+  it("throws when the same path is included with different combine_options", async () => {
+    await assert.rejects(
+      () =>
+        resolveIncludes(
+          "includes:\n  - file: base.yaml\n  - file: child.yaml\ntypes: []\n",
+          loadFiles({
+            "base.yaml": typeDoc("base"),
+            "child.yaml":
+              "includes:\n  - file: base.yaml\n    combine_options:\n      source:\n        remove_types: [base]\ntypes:\n  - child:\n      fields: []\n",
+          }),
+        ),
+      /base\.yaml.*combine_options differ/,
+    );
+  });
+
+  it("throws on an include cycle", async () => {
+    await assert.rejects(
+      () =>
+        resolveIncludes(
+          "includes:\n  - file: a.yaml\ntypes: []\n",
+          loadFiles({
+            "a.yaml": "includes:\n  - file: b.yaml\ntypes: []\n",
+            "b.yaml": "includes:\n  - file: a.yaml\ntypes: []\n",
+          }),
+        ),
+      /include cycle detected at 'a\.yaml'/,
+    );
+  });
+
+  it("throws when two different files define the same type name", async () => {
+    await assert.rejects(
+      () =>
+        resolveIncludes(
+          "includes:\n  - file: a.yaml\n  - file: b.yaml\ntypes: []\n",
+          loadFiles({
+            "a.yaml": typeDoc("user"),
+            "b.yaml": typeDoc("user"),
+          }),
+        ),
+      /duplicate type 'user'/,
+    );
   });
 });
 
@@ -83,6 +169,63 @@ describe("resolveSeedIncludes", () => {
           { source: { remove_types: ["missing"] } },
         ),
       /unknown remove_types target/,
+    );
+  });
+
+  it("folds a diamond include to one copy", async () => {
+    const result = await resolveSeedIncludes(
+      "version: 1.0.0\nincludes:\n  - file: base.yaml\n  - file: child.yaml\nseeds:\n  - extra:\n      - id1:\n          x: 1\n",
+      loadFiles({
+        "base.yaml": seedDoc("base"),
+        "child.yaml":
+          "version: 1.0.0\nincludes:\n  - file: base.yaml\nseeds:\n  - child:\n      - id1:\n          x: 1\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /extra:/);
+  });
+
+  it("throws when the same path is included with different combine_options", async () => {
+    await assert.rejects(
+      () =>
+        resolveSeedIncludes(
+          "version: 1.0.0\nincludes:\n  - file: base.yaml\n  - file: child.yaml\nseeds: []\n",
+          loadFiles({
+            "base.yaml": seedDoc("base"),
+            "child.yaml":
+              "version: 1.0.0\nincludes:\n  - file: base.yaml\n    combine_options:\n      source:\n        remove_types: [base]\nseeds:\n  - child:\n      - id1:\n          x: 1\n",
+          }),
+        ),
+      /base\.yaml.*combine_options differ/,
+    );
+  });
+
+  it("throws on an include cycle", async () => {
+    await assert.rejects(
+      () =>
+        resolveSeedIncludes(
+          "version: 1.0.0\nincludes:\n  - file: a.yaml\nseeds: []\n",
+          loadFiles({
+            "a.yaml": "version: 1.0.0\nincludes:\n  - file: b.yaml\nseeds: []\n",
+            "b.yaml": "version: 1.0.0\nincludes:\n  - file: a.yaml\nseeds: []\n",
+          }),
+        ),
+      /include cycle detected at 'a\.yaml'/,
+    );
+  });
+
+  it("throws when two different files define the same type name", async () => {
+    await assert.rejects(
+      () =>
+        resolveSeedIncludes(
+          "version: 1.0.0\nincludes:\n  - file: a.yaml\n  - file: b.yaml\nseeds: []\n",
+          loadFiles({
+            "a.yaml": seedDoc("user"),
+            "b.yaml": seedDoc("user"),
+          }),
+        ),
+      /duplicate type 'user'/,
     );
   });
 });
