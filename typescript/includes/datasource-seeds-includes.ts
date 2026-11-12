@@ -1,6 +1,6 @@
 import { parse, stringify } from "yaml";
 import { combineDatasourceSeeds } from "./datasource-seeds-combine.ts";
-import { emptyReport, mergeReports } from "./types-combine-core.ts";
+import { accHasAllNames, emptyReport, mergeReports } from "./types-combine-core.ts";
 import type { FlatCombineOptions } from "./types-combine-core.ts";
 import { includeGraph, takeIncludeEdge } from "./include-graph.ts";
 
@@ -83,7 +83,8 @@ export async function resolveSeedIncludes(
       takeIncludeEdge(loaded.key, include.combine_options, {
         visited,
         loaded: loadedKeys,
-      }) === "skip"
+      }) === "skip" &&
+      accHasAllNames(accYaml, loaded.text, "seeds")
     ) {
       continue;
     }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { combineDatasourceTypes } from "./datasource-types-combine.ts";
 import { resolveIncludes } from "./datasource-types-includes.ts";
 import { combineDatasourceSeeds, resolveSeedIncludes } from "./datasource-seeds-includes.ts";
 
@@ -113,6 +114,59 @@ describe("resolveIncludes", () => {
       /duplicate type 'user'/,
     );
   });
+
+  it("treats remove_types as done when diamond skip already left the type on dest", async () => {
+    const result = await resolveIncludes(
+      "includes:\n  - file: base.yaml\n  - file: child.yaml\n    combine_options:\n      source:\n        remove_types: [base]\ntypes:\n  - extra:\n      fields: []\n",
+      loadFiles({
+        "base.yaml": typeDoc("base"),
+        "child.yaml":
+          "includes:\n  - file: base.yaml\ntypes:\n  - child:\n      fields: []\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /extra:/);
+  });
+
+  it("keeps one base when several children remove_types a nested base include", async () => {
+    const child = (name: string) =>
+      `includes:\n  - file: base.yaml\ntypes:\n  - ${name}:\n      fields: []\n`;
+    const result = await resolveIncludes(
+      "includes:\n  - file: base.yaml\n  - file: a.yaml\n    combine_options:\n      source:\n        remove_types: [base]\n  - file: b.yaml\n    combine_options:\n      source:\n        remove_types: [base]\n  - file: c.yaml\n    combine_options:\n      source:\n        remove_types: [base]\ntypes:\n  - extra:\n      fields: []\n",
+      loadFiles({
+        "base.yaml": typeDoc("base"),
+        "a.yaml": child("a"),
+        "b.yaml": child("b"),
+        "c.yaml": child("c"),
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /- a:/);
+    assert.match(result.yaml, /- b:/);
+    assert.match(result.yaml, /- c:/);
+    assert.match(result.yaml, /extra:/);
+  });
+
+  it("drops source remove_types when dest already has the type", () => {
+    const result = combineDatasourceTypes(
+      typeDoc("child"),
+      typeDoc("base"),
+      { source: { remove_types: ["base"] } },
+    );
+    assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /base:/);
+  });
+
+  it("throws when remove_types names a type on neither side", () => {
+    assert.throws(
+      () =>
+        combineDatasourceTypes(typeDoc("child"), typeDoc("base"), {
+          source: { remove_types: ["missing"] },
+        }),
+      /unknown remove_types target/,
+    );
+  });
 });
 
 const loadSeeds = (text: string, key: string) => async () => ({
@@ -170,6 +224,28 @@ describe("resolveSeedIncludes", () => {
         ),
       /unknown remove_types target/,
     );
+  });
+
+  it("treats seed remove_types as done when dest already has the type", () => {
+    const result = combineDatasourceSeeds(seedDoc("child"), seedDoc("base"), {
+      source: { remove_types: ["base"] },
+    });
+    assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /base:/);
+  });
+
+  it("treats seed remove_types as done when diamond skip already left the type on dest", async () => {
+    const result = await resolveSeedIncludes(
+      "version: 1.0.0\nincludes:\n  - file: base.yaml\n  - file: child.yaml\n    combine_options:\n      source:\n        remove_types: [base]\nseeds:\n  - extra:\n      - id1:\n          x: 1\n",
+      loadFiles({
+        "base.yaml": seedDoc("base"),
+        "child.yaml":
+          "version: 1.0.0\nincludes:\n  - file: base.yaml\nseeds:\n  - child:\n      - id1:\n          x: 1\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /extra:/);
   });
 
   it("folds a diamond include to one copy", async () => {

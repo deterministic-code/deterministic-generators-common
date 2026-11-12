@@ -2,6 +2,7 @@ import { parse, stringify } from "yaml";
 import {
   applyEntryOptions,
   assertCombine,
+  dropSatisfiedRemoves,
   duplicateNames,
   findIndexByName,
   renameKey,
@@ -96,10 +97,11 @@ function buildCombined(
   const report = {
     duplicateTypes: duplicateNames(source.data.types, destination.data.types),
     invalidReferences: [] as { instancePath: string; message: string }[],
-    unknownOptionTargets: [
-      ...source.unknownTargets,
-      ...destination.unknownTargets,
-    ],
+    unknownOptionTargets: dropSatisfiedRemoves(
+      [...source.unknownTargets, ...destination.unknownTargets],
+      source.data.types,
+      destination.data.types,
+    ),
   };
   return { combined, report };
 }
