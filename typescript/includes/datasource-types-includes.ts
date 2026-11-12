@@ -1,6 +1,6 @@
 import { parse, stringify } from "yaml";
 import { combineDatasourceTypes } from "./datasource-types-combine.ts";
-import { emptyReport, mergeReports } from "./types-combine-core.ts";
+import { accHasAllNames, emptyReport, mergeReports } from "./types-combine-core.ts";
 import { mergeCustomMigrations } from "./custom-migrations-merge.ts";
 import { includeGraph, takeIncludeEdge } from "./include-graph.ts";
 import type { RawTypesDoc } from "./deterministic-shapes.ts";
@@ -98,7 +98,8 @@ export async function resolveIncludes(
       takeIncludeEdge(loaded.key, include.combine_options, {
         visited,
         loaded: loadedKeys,
-      }) === "skip"
+      }) === "skip" &&
+      accHasAllNames(accYaml, loaded.text, "types")
     ) {
       continue;
     }

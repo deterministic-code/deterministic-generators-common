@@ -296,6 +296,49 @@ export function duplicateNames(
   return sourceEntries.map(keyOf).filter((name) => dstNames.has(name));
 }
 
+/**
+ * Drop a `remove_types` (or flat `removeOp`) unknown target when the other side
+ * already has that name. Diamond include skip strips the nested type from the
+ * source; destination already holds the one copy, so the remove is satisfied.
+ * A name missing on both sides stays unknown.
+ */
+export function dropSatisfiedRemoves(
+  unknown: UnknownTarget[],
+  sourceEntries: readonly unknown[],
+  destEntries: readonly unknown[],
+  keyOf: NameExtractor = nameOf,
+  removeOp = "remove_types",
+): UnknownTarget[] {
+  const sourceNames = new Set(sourceEntries.map(keyOf));
+  const destNames = new Set(destEntries.map(keyOf));
+  return unknown.filter((u) => {
+    if (u.op !== removeOp) return true;
+    const other = u.side === "destination" ? sourceNames : destNames;
+    return !other.has(u.target);
+  });
+}
+
+/** Type/seed names declared on a document (includes are ignored). */
+export function namesOfYaml(yaml: string, arrayKey: string): string[] {
+  const doc = (parse(yaml) as Record<string, unknown> | null) ?? {};
+  const entries = Array.isArray(doc[arrayKey]) ? (doc[arrayKey] as unknown[]) : [];
+  return entries.map(nameOf);
+}
+
+/**
+ * True when every name in `sourceYaml`'s `arrayKey` list is already in `accYaml`.
+ * A skipped diamond include can then stay skipped; if a later `remove_types`
+ * stripped those names, this is false and the include must be folded again.
+ */
+export function accHasAllNames(
+  accYaml: string,
+  sourceYaml: string,
+  arrayKey: string,
+): boolean {
+  const acc = new Set(namesOfYaml(accYaml, arrayKey));
+  return namesOfYaml(sourceYaml, arrayKey).every((name) => acc.has(name));
+}
+
 export function emptyReport(): CombineReport {
   return {
     duplicateTypes: [],
@@ -393,10 +436,13 @@ function flatBuild(
       removeConfig.nameOf,
     ),
     invalidReferences: [],
-    unknownOptionTargets: [
-      ...source.unknownTargets,
-      ...destination.unknownTargets,
-    ],
+    unknownOptionTargets: dropSatisfiedRemoves(
+      [...source.unknownTargets, ...destination.unknownTargets],
+      source[arrayKey],
+      destination[arrayKey],
+      removeConfig.nameOf,
+      removeConfig.removeKey,
+    ),
   };
   return { combined, report };
 }
