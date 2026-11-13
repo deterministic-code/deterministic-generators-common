@@ -60,6 +60,23 @@ describe("resolveIncludes", () => {
     assert.ok(result.yaml.indexOf("lookup:") < result.yaml.indexOf("extra:"));
   });
 
+  it("folds base once when two sibling includes each nest base.yaml", async () => {
+    const child = (name: string) =>
+      `includes:\n  - file: base.yaml\ntypes:\n  - ${name}:\n      fields: []\n`;
+    const result = await resolveIncludes(
+      "includes:\n  - file: user-roles.yaml\n  - file: applications.yaml\ntypes:\n  - extra:\n      fields: []\n",
+      loadFiles({
+        "base.yaml": typeDoc("base"),
+        "user-roles.yaml": child("role"),
+        "applications.yaml": child("app"),
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /role:/);
+    assert.match(result.yaml, /app:/);
+    assert.match(result.yaml, /extra:/);
+  });
+
   it("skips a second include of the same path when combine_options is {}", async () => {
     const result = await resolveIncludes(
       "includes:\n  - file: base.yaml\n    combine_options: {}\n  - file: child.yaml\ntypes: []\n",
@@ -259,6 +276,23 @@ describe("resolveSeedIncludes", () => {
     );
     assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
     assert.match(result.yaml, /child:/);
+    assert.match(result.yaml, /extra:/);
+  });
+
+  it("folds base once when two sibling seed includes each nest base.yaml", async () => {
+    const child = (name: string) =>
+      `version: 1.0.0\nincludes:\n  - file: base.yaml\nseeds:\n  - ${name}:\n      - id1:\n          x: 1\n`;
+    const result = await resolveSeedIncludes(
+      "version: 1.0.0\nincludes:\n  - file: user-roles.yaml\n  - file: applications.yaml\nseeds:\n  - extra:\n      - id1:\n          x: 1\n",
+      loadFiles({
+        "base.yaml": seedDoc("base"),
+        "user-roles.yaml": child("role"),
+        "applications.yaml": child("app"),
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- base:/g)].length, 1);
+    assert.match(result.yaml, /role:/);
+    assert.match(result.yaml, /app:/);
     assert.match(result.yaml, /extra:/);
   });
 
