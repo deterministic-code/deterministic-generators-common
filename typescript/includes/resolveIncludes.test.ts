@@ -165,6 +165,25 @@ describe("resolveIncludes", () => {
     assert.match(result.yaml, /extra:/);
   });
 
+  it("restores user_base when a later include needs it after remove_types stripped the first copy", async () => {
+    const result = await resolveIncludes(
+      "includes:\n  - file: games.yaml\n  - file: identity.yaml\n    combine_options:\n      source:\n        remove_types: [user_base]\ntypes: []\n",
+      loadFiles({
+        "user-roles.yaml": typeDoc("user_base"),
+        "reviews.yaml":
+          "includes:\n  - file: user-roles.yaml\ntypes:\n  - review:\n      fields: []\n",
+        "games.yaml":
+          "includes:\n  - file: user-roles.yaml\n  - file: reviews.yaml\ntypes:\n  - game:\n      fields: []\n",
+        "identity.yaml":
+          "includes:\n  - file: user-roles.yaml\ntypes:\n  - oauth:\n      fields: []\n",
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- user_base:/g)].length, 1);
+    assert.match(result.yaml, /- review:/);
+    assert.match(result.yaml, /- game:/);
+    assert.match(result.yaml, /- oauth:/);
+  });
+
   it("drops source remove_types when dest already has the type", () => {
     const result = combineDatasourceTypes(
       typeDoc("child"),
