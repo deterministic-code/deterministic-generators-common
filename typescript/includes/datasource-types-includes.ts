@@ -1,7 +1,8 @@
 import { parse, stringify } from "yaml";
 import { combineDatasourceTypes } from "./datasource-types-combine.ts";
 import {
-  accHasAllNames,
+  availableHasAllNames,
+  availableNames,
   emptyReport,
   mergeReports,
   pruneDiamondRemoves,
@@ -29,6 +30,8 @@ interface ResolveCtx {
   visited?: Set<string>;
   loaded?: Map<string, unknown>;
   foldedNames?: Set<string>;
+  /** Type names already on ancestor accumulators (parent → root). */
+  presentNames?: ReadonlySet<string>;
 }
 
 interface DatasourceInclude {
@@ -73,15 +76,16 @@ function withoutIncludes(doc: RawTypesDoc): RawTypesDoc {
  * identity: a path already on `ctx.visited` (the ancestor stack) is a cycle;
  * a path already in the graph-wide `ctx.loaded` map is skipped when this
  * edge's `combine_options` deep-equal the first load (missing and `{}` are
- * the same) and throws when they differ. Nested skips never re-fold into the
- * local document (sibling diamonds such as `base.yaml` under both
- * `user-roles.yaml` and `applications.yaml`); at the root only, a skip that
- * left names missing from the accumulator (after `remove_types`) re-folds the
- * file's own body. Names folded anywhere in the graph stay in `foldedNames` so
- * a later sibling's `remove_types` for a diamond-skipped nested type is treated
- * as already satisfied. The returned `ctx` is passed to the nested resolution so
- * relative paths rebase correctly; `customMigrations` (a
- * `{ [dialect]: [pairs] }` map, optional) carries that datasource's
+ * the same) and throws when they differ. A skipped path stays skipped when
+ * this accumulator or an ancestor already holds every name from the file's own
+ * body (sibling diamonds such as `base.yaml` under both `user-roles.yaml` and
+ * `applications.yaml`). When those names are missing — including after an
+ * ancestor's `remove_types` — the skip re-folds the file's own body so a later
+ * path can restore them. Names folded anywhere in the graph stay in
+ * `foldedNames` so a later sibling's `remove_types` for a diamond-skipped
+ * nested type is treated as already satisfied. The returned `ctx` is passed to
+ * the nested resolution so relative paths rebase correctly; `customMigrations`
+ * (a `{ [dialect]: [pairs] }` map, optional) carries that datasource's
  * hand-authored `custom/` SQL so `skip_migrations` entities keep their DDL
  * across the include. Seed `ctx.visited` to catch cycles back to the root.
  * Pure aside from the injected loader; combine collisions / invalid
@@ -91,7 +95,6 @@ export async function resolveIncludes(
   rootYaml: string,
   load: Load,
   ctx: ResolveCtx = {},
-  depth = 0,
 ): Promise<ResolveResult> {
   const doc = (parse(rootYaml) as RawTypesDoc | null) ?? {};
   const includes = (
@@ -116,13 +119,16 @@ export async function resolveIncludes(
         loaded: loadedKeys,
       }) === "skip"
     ) {
-      // Nested: the first load already contributed these types on another path.
-      if (depth > 0) continue;
-      // Root: skip when dest still has every name; otherwise re-fold this file's
-      // own body (no nested includes) after remove_types stripped them.
-      if (accHasAllNames(accYaml, loaded.text, "types")) continue;
-      const ownYaml = stringify(withoutIncludes((parse(loaded.text) as RawTypesDoc | null) ?? {}));
-      if (accHasAllNames(accYaml, ownYaml, "types")) continue;
+      const ownYaml = stringify(
+        withoutIncludes((parse(loaded.text) as RawTypesDoc | null) ?? {}),
+      );
+      const available = availableNames(accYaml, "types", ctx.presentNames);
+      if (
+        availableHasAllNames(available, loaded.text, "types") ||
+        availableHasAllNames(available, ownYaml, "types")
+      ) {
+        continue;
+      }
       recordFoldedNames(foldedNames, ownYaml, "types");
       const recovered = combineDatasourceTypes(
         ownYaml,
@@ -144,7 +150,8 @@ export async function resolveIncludes(
       visited: new Set(visited).add(loaded.key),
       loaded: loadedKeys,
       foldedNames,
-    }, depth + 1);
+      presentNames: availableNames(accYaml, "types", ctx.presentNames),
+    });
     reports.push(child.report);
     mergeCustomMigrations(
       customMigrations,

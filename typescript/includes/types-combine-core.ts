@@ -390,6 +390,30 @@ export function accHasAllNames(
   return namesOfYaml(sourceYaml, arrayKey).every((name) => acc.has(name));
 }
 
+/**
+ * Names visible for a diamond skip: this document's accumulator plus any
+ * ancestor accumulator (so a nested skip stays skipped when a parent already
+ * holds the type, and recovers when `remove_types` stripped it above).
+ */
+export function availableNames(
+  accYaml: string,
+  arrayKey: string,
+  ancestors?: ReadonlySet<string>,
+): Set<string> {
+  const names = new Set(ancestors ?? []);
+  for (const name of namesOfYaml(accYaml, arrayKey)) names.add(name);
+  return names;
+}
+
+/** True when every name in `sourceYaml` is in `available`. */
+export function availableHasAllNames(
+  available: ReadonlySet<string>,
+  sourceYaml: string,
+  arrayKey: string,
+): boolean {
+  return namesOfYaml(sourceYaml, arrayKey).every((name) => available.has(name));
+}
+
 export function emptyReport(): CombineReport {
   return {
     duplicateTypes: [],

@@ -1,7 +1,8 @@
 import { parse, stringify } from "yaml";
 import { combineDatasourceSeeds } from "./datasource-seeds-combine.ts";
 import {
-  accHasAllNames,
+  availableHasAllNames,
+  availableNames,
   emptyReport,
   mergeReports,
   pruneDiamondRemoves,
@@ -17,6 +18,7 @@ interface ResolveCtx {
   visited?: Set<string>;
   loaded?: Map<string, unknown>;
   foldedNames?: Set<string>;
+  presentNames?: ReadonlySet<string>;
 }
 
 interface SeedInclude {
@@ -64,9 +66,10 @@ function withoutIncludes(doc: SeedDoc): SeedDoc {
  * a path already on `ctx.visited` (the ancestor stack) is a cycle; a path
  * already in the graph-wide `ctx.loaded` map is skipped when this edge's
  * `combine_options` deep-equal the first load (missing and `{}` are the same)
- * and throws when they differ. Nested skips never re-fold into the local
- * document; at the root only, a skip that left names missing from the
- * accumulator re-folds the file's own body. Names folded anywhere in the graph
+ * and throws when they differ. A skipped path stays skipped when this
+ * accumulator or an ancestor already holds every name from the file's own body;
+ * when those names are missing (including after an ancestor's `remove_types`),
+ * the skip re-folds the file's own body. Names folded anywhere in the graph
  * stay in `foldedNames` so a later sibling's `remove_types` for a
  * diamond-skipped nested type is treated as already satisfied. The returned
  * `ctx` is passed to the nested resolution so relative paths rebase correctly.
@@ -78,7 +81,6 @@ export async function resolveSeedIncludes(
   rootYaml: string,
   load: Load,
   ctx: ResolveCtx = {},
-  depth = 0,
 ): Promise<ResolveResult> {
   const doc = (parse(rootYaml) as SeedDoc | null) ?? {};
   const includes = Array.isArray(doc.includes) ? doc.includes : [];
@@ -100,10 +102,16 @@ export async function resolveSeedIncludes(
         loaded: loadedKeys,
       }) === "skip"
     ) {
-      if (depth > 0) continue;
-      if (accHasAllNames(accYaml, loaded.text, "seeds")) continue;
-      const ownYaml = stringify(withoutIncludes((parse(loaded.text) as SeedDoc | null) ?? {}));
-      if (accHasAllNames(accYaml, ownYaml, "seeds")) continue;
+      const ownYaml = stringify(
+        withoutIncludes((parse(loaded.text) as SeedDoc | null) ?? {}),
+      );
+      const available = availableNames(accYaml, "seeds", ctx.presentNames);
+      if (
+        availableHasAllNames(available, loaded.text, "seeds") ||
+        availableHasAllNames(available, ownYaml, "seeds")
+      ) {
+        continue;
+      }
       recordFoldedNames(foldedNames, ownYaml, "seeds");
       const recovered = combineDatasourceSeeds(
         ownYaml,
@@ -125,7 +133,8 @@ export async function resolveSeedIncludes(
       visited: new Set(visited).add(loaded.key),
       loaded: loadedKeys,
       foldedNames,
-    }, depth + 1);
+      presentNames: availableNames(accYaml, "seeds", ctx.presentNames),
+    });
     reports.push(child.report);
     recordFoldedNames(foldedNames, child.yaml, "seeds");
     const combined = combineDatasourceSeeds(
