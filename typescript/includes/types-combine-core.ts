@@ -318,6 +318,57 @@ export function dropSatisfiedRemoves(
   });
 }
 
+type RemoveTypesSide = { remove_types?: string[]; [key: string]: unknown };
+type RemoveTypesOptions = {
+  source?: RemoveTypesSide;
+  destination?: RemoveTypesSide;
+};
+
+/**
+ * Drop `remove_types` names that are on neither side but were already folded
+ * into the include graph (sibling diamond: nested `base` under two children,
+ * then stripped by the first child's `remove_types`). Keeps a missing name that
+ * was never folded so combine still throws.
+ */
+export function pruneDiamondRemoves<T extends RemoveTypesOptions>(
+  options: T | undefined,
+  sourceYaml: string,
+  destYaml: string,
+  foldedNames: ReadonlySet<string>,
+  arrayKey: string,
+): T | undefined {
+  if (!options || foldedNames.size === 0) return options;
+  const sourceNames = new Set(namesOfYaml(sourceYaml, arrayKey));
+  const destNames = new Set(namesOfYaml(destYaml, arrayKey));
+  const pruneSide = (side: RemoveTypesSide | undefined) => {
+    if (!side?.remove_types?.length) return side;
+    const remove_types = side.remove_types.filter(
+      (name) =>
+        sourceNames.has(name) ||
+        destNames.has(name) ||
+        !foldedNames.has(name),
+    );
+    return remove_types.length === side.remove_types.length
+      ? side
+      : { ...side, remove_types };
+  };
+  const source = pruneSide(options.source);
+  const destination = pruneSide(options.destination);
+  if (source === options.source && destination === options.destination) {
+    return options;
+  }
+  return { ...options, source, destination };
+}
+
+/** Record every name from `yaml`'s `arrayKey` into the graph-wide folded set. */
+export function recordFoldedNames(
+  foldedNames: Set<string>,
+  yaml: string,
+  arrayKey: string,
+): void {
+  for (const name of namesOfYaml(yaml, arrayKey)) foldedNames.add(name);
+}
+
 /** Type/seed names declared on a document (includes are ignored). */
 export function namesOfYaml(yaml: string, arrayKey: string): string[] {
   const doc = (parse(yaml) as Record<string, unknown> | null) ?? {};

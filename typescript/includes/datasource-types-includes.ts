@@ -1,6 +1,12 @@
 import { parse, stringify } from "yaml";
 import { combineDatasourceTypes } from "./datasource-types-combine.ts";
-import { accHasAllNames, emptyReport, mergeReports } from "./types-combine-core.ts";
+import {
+  accHasAllNames,
+  emptyReport,
+  mergeReports,
+  pruneDiamondRemoves,
+  recordFoldedNames,
+} from "./types-combine-core.ts";
 import { mergeCustomMigrations } from "./custom-migrations-merge.ts";
 import { includeGraph, takeIncludeEdge } from "./include-graph.ts";
 import type { RawTypesDoc } from "./deterministic-shapes.ts";
@@ -22,6 +28,7 @@ interface ResolveCtx {
   baseDir?: string;
   visited?: Set<string>;
   loaded?: Map<string, unknown>;
+  foldedNames?: Set<string>;
 }
 
 interface DatasourceInclude {
@@ -66,9 +73,15 @@ function withoutIncludes(doc: RawTypesDoc): RawTypesDoc {
  * identity: a path already on `ctx.visited` (the ancestor stack) is a cycle;
  * a path already in the graph-wide `ctx.loaded` map is skipped when this
  * edge's `combine_options` deep-equal the first load (missing and `{}` are
- * the same) and throws when they differ. The returned `ctx` is passed to the
- * nested resolution so relative paths rebase correctly; `customMigrations`
- * (a `{ [dialect]: [pairs] }` map, optional) carries that datasource's
+ * the same) and throws when they differ. Nested skips never re-fold into the
+ * local document (sibling diamonds such as `base.yaml` under both
+ * `user-roles.yaml` and `applications.yaml`); at the root only, a skip that
+ * left names missing from the accumulator (after `remove_types`) re-folds the
+ * file's own body. Names folded anywhere in the graph stay in `foldedNames` so
+ * a later sibling's `remove_types` for a diamond-skipped nested type is treated
+ * as already satisfied. The returned `ctx` is passed to the nested resolution so
+ * relative paths rebase correctly; `customMigrations` (a
+ * `{ [dialect]: [pairs] }` map, optional) carries that datasource's
  * hand-authored `custom/` SQL so `skip_migrations` entities keep their DDL
  * across the include. Seed `ctx.visited` to catch cycles back to the root.
  * Pure aside from the injected loader; combine collisions / invalid
@@ -78,6 +91,7 @@ export async function resolveIncludes(
   rootYaml: string,
   load: Load,
   ctx: ResolveCtx = {},
+  depth = 0,
 ): Promise<ResolveResult> {
   const doc = (parse(rootYaml) as RawTypesDoc | null) ?? {};
   const includes = (
@@ -88,9 +102,11 @@ export async function resolveIncludes(
   }
 
   const { visited, loaded: loadedKeys } = includeGraph(ctx);
+  const foldedNames = ctx.foldedNames ?? new Set<string>();
   const reports: CombineReport[] = [];
   const customMigrations: CustomMigrations = {};
   let accYaml = stringify(withoutIncludes(doc));
+  recordFoldedNames(foldedNames, accYaml, "types");
 
   for (const include of [...includes].reverse()) {
     const loaded = await load(include, ctx);
@@ -98,16 +114,37 @@ export async function resolveIncludes(
       takeIncludeEdge(loaded.key, include.combine_options, {
         visited,
         loaded: loadedKeys,
-      }) === "skip" &&
-      accHasAllNames(accYaml, loaded.text, "types")
+      }) === "skip"
     ) {
+      // Nested: the first load already contributed these types on another path.
+      if (depth > 0) continue;
+      // Root: skip when dest still has every name; otherwise re-fold this file's
+      // own body (no nested includes) after remove_types stripped them.
+      if (accHasAllNames(accYaml, loaded.text, "types")) continue;
+      const ownYaml = stringify(withoutIncludes((parse(loaded.text) as RawTypesDoc | null) ?? {}));
+      if (accHasAllNames(accYaml, ownYaml, "types")) continue;
+      recordFoldedNames(foldedNames, ownYaml, "types");
+      const recovered = combineDatasourceTypes(
+        ownYaml,
+        accYaml,
+        pruneDiamondRemoves(
+          include.combine_options ?? {},
+          ownYaml,
+          accYaml,
+          foldedNames,
+          "types",
+        ) ?? {},
+      );
+      reports.push(recovered.report);
+      accYaml = recovered.yaml;
       continue;
     }
     const child = await resolveIncludes(loaded.text, load, {
       ...loaded.ctx,
       visited: new Set(visited).add(loaded.key),
       loaded: loadedKeys,
-    });
+      foldedNames,
+    }, depth + 1);
     reports.push(child.report);
     mergeCustomMigrations(
       customMigrations,
@@ -115,10 +152,17 @@ export async function resolveIncludes(
       loaded.key,
     );
     mergeCustomMigrations(customMigrations, child.customMigrations, loaded.key);
+    recordFoldedNames(foldedNames, child.yaml, "types");
     const combined = combineDatasourceTypes(
       child.yaml,
       accYaml,
-      include.combine_options ?? {},
+      pruneDiamondRemoves(
+        include.combine_options ?? {},
+        child.yaml,
+        accYaml,
+        foldedNames,
+        "types",
+      ) ?? {},
     );
     reports.push(combined.report);
     accYaml = combined.yaml;
