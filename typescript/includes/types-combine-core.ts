@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { parse, stringify } from "yaml";
 
 type Entry = Record<string, unknown>;
@@ -99,8 +100,8 @@ export interface FlatCombineOptions {
   destination?: FlatSideOptions;
 }
 
-function nameOf(entry: unknown): string {
-  return Object.keys(entry as object)[0];
+export function nameOf(entry: unknown): string {
+  return Object.keys(entry as object)[0] ?? "";
 }
 
 function defOf(entry: Entry): unknown {
@@ -292,8 +293,38 @@ export function duplicateNames(
   destEntries: readonly unknown[],
   keyOf: NameExtractor = nameOf,
 ): string[] {
-  const dstNames = new Set(destEntries.map(keyOf));
-  return sourceEntries.map(keyOf).filter((name) => dstNames.has(name));
+  return partitionOverlaps(sourceEntries, destEntries, keyOf).duplicateNames;
+}
+
+/**
+ * Drop source entries whose name already exists on destination with an identical
+ * definition (diamond / repeated inline `base`). Differing definitions stay on
+ * source and are listed in `duplicateNames` so combine can still reject them.
+ */
+export function partitionOverlaps<T>(
+  sourceEntries: readonly T[],
+  destEntries: readonly T[],
+  keyOf: NameExtractor = nameOf,
+): { source: T[]; duplicateNames: string[]; identicalNames: string[] } {
+  const destByName = new Map(destEntries.map((entry) => [keyOf(entry), entry]));
+  const source: T[] = [];
+  const duplicateNames: string[] = [];
+  const identicalNames: string[] = [];
+  for (const entry of sourceEntries) {
+    const name = keyOf(entry);
+    const dest = destByName.get(name);
+    if (dest === undefined) {
+      source.push(entry);
+      continue;
+    }
+    if (isDeepStrictEqual(entry, dest)) {
+      identicalNames.push(name);
+      continue;
+    }
+    duplicateNames.push(name);
+    source.push(entry);
+  }
+  return { source, duplicateNames, identicalNames };
 }
 
 /**
@@ -501,19 +532,20 @@ function flatBuild(
     sideOptions: options.destination,
     side: "destination",
   });
+  const overlap = partitionOverlaps(
+    source[arrayKey],
+    destination[arrayKey],
+    removeConfig.nameOf,
+  );
   const combined = {
-    [arrayKey]: [...source[arrayKey], ...destination[arrayKey]],
+    [arrayKey]: [...overlap.source, ...destination[arrayKey]],
   };
   const report: CombineReport = {
-    duplicateTypes: duplicateNames(
-      source[arrayKey],
-      destination[arrayKey],
-      removeConfig.nameOf,
-    ),
+    duplicateTypes: overlap.duplicateNames,
     invalidReferences: [],
     unknownOptionTargets: dropSatisfiedRemoves(
       [...source.unknownTargets, ...destination.unknownTargets],
-      source[arrayKey],
+      overlap.source,
       destination[arrayKey],
       removeConfig.nameOf,
       removeConfig.removeKey,
