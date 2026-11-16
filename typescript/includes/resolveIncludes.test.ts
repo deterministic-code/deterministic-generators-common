@@ -118,14 +118,27 @@ describe("resolveIncludes", () => {
     );
   });
 
-  it("throws when two different files define the same type name", async () => {
+  it("keeps one type when two files define the same type identically", async () => {
+    const result = await resolveIncludes(
+      "includes:\n  - file: a.yaml\n  - file: b.yaml\ntypes: []\n",
+      loadFiles({
+        "a.yaml": typeDoc("user"),
+        "b.yaml": typeDoc("user"),
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- user:/g)].length, 1);
+  });
+
+  it("throws when two files define the same type differently", async () => {
     await assert.rejects(
       () =>
         resolveIncludes(
           "includes:\n  - file: a.yaml\n  - file: b.yaml\ntypes: []\n",
           loadFiles({
-            "a.yaml": typeDoc("user"),
-            "b.yaml": typeDoc("user"),
+            "a.yaml":
+              "version: 1.0.0\ntypes:\n  - user:\n      fields:\n        - id:\n            type: integer\n",
+            "b.yaml":
+              "version: 1.0.0\ntypes:\n  - user:\n      fields:\n        - id:\n            type: string\n",
           }),
         ),
       /duplicate type 'user'/,
@@ -344,14 +357,27 @@ describe("resolveSeedIncludes", () => {
     );
   });
 
-  it("throws when two different files define the same type name", async () => {
+  it("keeps one seed when two files define the same type identically", async () => {
+    const result = await resolveSeedIncludes(
+      "version: 1.0.0\nincludes:\n  - file: a.yaml\n  - file: b.yaml\nseeds: []\n",
+      loadFiles({
+        "a.yaml": seedDoc("user"),
+        "b.yaml": seedDoc("user"),
+      }),
+    );
+    assert.equal([...result.yaml.matchAll(/- user:/g)].length, 1);
+  });
+
+  it("throws when two files define the same seed type differently", async () => {
     await assert.rejects(
       () =>
         resolveSeedIncludes(
           "version: 1.0.0\nincludes:\n  - file: a.yaml\n  - file: b.yaml\nseeds: []\n",
           loadFiles({
-            "a.yaml": seedDoc("user"),
-            "b.yaml": seedDoc("user"),
+            "a.yaml":
+              "version: 1.0.0\nseeds:\n  - user:\n      - id1:\n          email: a\n",
+            "b.yaml":
+              "version: 1.0.0\nseeds:\n  - user:\n      - id1:\n          email: b\n",
           }),
         ),
       /duplicate type 'user'/,

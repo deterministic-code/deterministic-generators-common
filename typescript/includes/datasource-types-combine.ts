@@ -3,8 +3,9 @@ import {
   applyEntryOptions,
   assertCombine,
   dropSatisfiedRemoves,
-  duplicateNames,
   findIndexByName,
+  nameOf,
+  partitionOverlaps,
   renameKey,
 } from "./types-combine-core.ts";
 import type {
@@ -84,22 +85,26 @@ function buildCombined(
   );
 
   const version = destDoc.version ?? sourceDoc.version;
+  const overlap = partitionOverlaps(source.data.types, destination.data.types);
+  const identical = new Set(overlap.identicalNames);
   const combined: AppliedDoc = {
     ...(version !== undefined ? { version } : {}),
-    types: [...source.data.types, ...destination.data.types],
+    types: [...overlap.source, ...destination.data.types],
   };
   const mappings = [
-    ...(source.data.datasource_mappings ?? []),
+    ...(source.data.datasource_mappings ?? []).filter(
+      (entry) => !identical.has(nameOf(entry)),
+    ),
     ...(destination.data.datasource_mappings ?? []),
   ];
   if (mappings.length > 0) combined.datasource_mappings = mappings;
 
   const report = {
-    duplicateTypes: duplicateNames(source.data.types, destination.data.types),
+    duplicateTypes: overlap.duplicateNames,
     invalidReferences: [] as { instancePath: string; message: string }[],
     unknownOptionTargets: dropSatisfiedRemoves(
       [...source.unknownTargets, ...destination.unknownTargets],
-      source.data.types,
+      overlap.source,
       destination.data.types,
     ),
   };
@@ -136,8 +141,10 @@ export function reportCombineDatasourceTypes(
 /**
  * Combine two datasource_types.yaml documents into one. Applies each side's
  * transform options, concatenates source-then-destination types, and asserts:
- * throws if any type name still overlaps, a reference is invalid, or an option
- * target didn't resolve. Returns the combined YAML string and the report.
+ * throws if any type name still overlaps with a different definition, a
+ * reference is invalid, or an option target didn't resolve. Identical
+ * overlapping types keep the destination copy. Returns the combined YAML
+ * string and the report.
  */
 export function combineDatasourceTypes(
   sourceYaml: string,
